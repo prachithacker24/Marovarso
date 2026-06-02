@@ -1,0 +1,45 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id          String   @id @default(uuid())
+  phoneNumber String   @unique
+  countryCode String
+  fullName    String?
+  isActive    Boolean  @default(true)
+  isVerified  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Otp {
+  id          String   @id @default(uuid())
+  phoneNumber String
+  otp         String
+  expiresAt   DateTime
+  isUsed      Boolean  @default(false)
+  resendCount Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@map("otps")
+}
+
+model UserLockout {
+  id                String    @id @default(uuid())
+  phoneNumber       String    @unique
+  failedOtpAttempts Int       @default(0)
+  lockedUntil       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("user_lockouts")
+}
+
