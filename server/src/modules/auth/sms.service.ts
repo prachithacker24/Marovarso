@@ -1,41 +1,33 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SmsAdapter } from './sms/sms-adapter.interface';
+import { LocalSmsAdapter } from './sms/local-sms.adapter';
+import { ProductionSmsAdapter } from './sms/production-sms.adapter';
 
 @Injectable()
 export class SmsService {
-  private readonly logger = new Logger(SmsService.name);
+  private readonly adapter: SmsAdapter;
 
-  constructor(private readonly configService: ConfigService) { }
+  constructor(private readonly configService: ConfigService) {
+    const provider = this.configService.get<string>('OTP_PROVIDER');
+    this.adapter =
+      provider === 'production'
+        ? new ProductionSmsAdapter()
+        : new LocalSmsAdapter();
+  }
 
   /**
-   * Dispatch OTP code conditionally based on environment flag.
+   * Dispatch OTP code via configured SMS adapter.
    */
   async sendOtp(
     phoneNumber: string,
     countryCode: string,
     otp: string,
   ): Promise<boolean> {
-    const provider = this.configService.get<string>('OTP_PROVIDER');
-    const isProduction = provider === 'production';
     const destination = `${countryCode}${phoneNumber}`;
-
-    if (isProduction) {
-      // In production mode, invoke production SMS Gateway API (Stubbed implementation)
-      this.logger.log(`[PRODUCTION SMS] Dispatching SMS payload via Gateway Client`);
-      this.logger.log(`[SMS GATEWAY CALL] Successfully sent Verification OTP "${otp}" to ${destination}`);
-
-      // Integration with Twilio/SMS API placeholder:
-      // await this.smsGateway.send(destination, `Your MaroVarso OTP is ${otp}. Valid for 5 minutes.`);
-      return true;
-    } else {
-      // In local/development mode, print code clearly into the terminal for seamless local testing
-      const expirationMinutes = this.configService.get<string>('OTP_EXPIRATION_MINUTES', '5');
-      this.logger.warn(`┌────────────────────────────────────────────────────────┐`);
-      this.logger.warn(`  [DEV/LOCAL SMS SIMULATION] OTP Dispatched to ${destination}`);
-      this.logger.warn(`  YOUR MAROVARSO VERIFICATION OTP IS: ${otp}                    `);
-      this.logger.warn(`  Expiration: ${expirationMinutes} Minutes                                 `);
-      this.logger.warn(`└────────────────────────────────────────────────────────┘`);
-      return true;
-    }
+    const expirationMinutes = Number(
+      this.configService.get<string>('OTP_EXPIRATION_MINUTES', '5'),
+    );
+    return this.adapter.sendOtp(destination, otp, expirationMinutes);
   }
 }

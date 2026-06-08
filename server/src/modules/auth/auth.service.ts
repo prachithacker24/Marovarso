@@ -8,6 +8,8 @@ import { UsersService } from '../users/users.service';
 import { SmsService } from './sms.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { LoginActivityService } from './login-activity.service';
+import { randomInt, createHash, randomUUID } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -17,32 +19,40 @@ export class AuthService {
     private readonly smsService: SmsService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly loginActivityService: LoginActivityService,
   ) {}
+
+  /**
+   * Helper to hash refresh tokens before storing them.
+   */
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
 
   /**
    * Helper to check if a phone number is locked out.
    */
   async checkLockout(phoneNumber: string): Promise<void> {
-    const lockout = await this.prisma.userLockout.findUnique({
-      where: { phoneNumber },
+    const credential = await this.prisma.userCredential.findUnique({
+      where: { mobileNumber: phoneNumber },
     });
 
-    if (lockout) {
+    if (credential) {
       const now = new Date();
-      if (lockout.lockedUntil && lockout.lockedUntil > now) {
+      if (credential.lockedUntil && credential.lockedUntil > now) {
         const secondsLeft = Math.ceil(
-          (lockout.lockedUntil.getTime() - now.getTime()) / 1000,
+          (credential.lockedUntil.getTime() - now.getTime()) / 1000,
         );
         const minutesLeft = Math.ceil(secondsLeft / 60);
         throw new BadRequestException(
           `Login is temporarily locked due to too many attempts. Please try again after ${minutesLeft} minute(s).`,
         );
-      } else if (lockout.lockedUntil && lockout.lockedUntil <= now) {
+      } else if (credential.lockedUntil && credential.lockedUntil <= now) {
         // Lockout expired, reset status
-        await this.prisma.userLockout.update({
-          where: { phoneNumber },
+        await this.prisma.userCredential.update({
+          where: { mobileNumber: phoneNumber },
           data: {
-            failedOtpAttempts: 0,
+            otpAttemptCount: 0,
             lockedUntil: null,
           },
         });
@@ -54,10 +64,53 @@ export class AuthService {
    * Generates a 6 digit OTP, stores it in the DB, and dispatches it.
    */
   async sendOtp(phoneNumber: string, countryCode: string) {
+    // Find or create user immediately to manage lockout state on credential
+    let user = await this.usersService.findByPhoneNumber(phoneNumber);
+    if (!user) {
+      user = await this.usersService.create({
+        mobileNumber: phoneNumber,
+        countryCode,
+      });
+    }
+
     await this.checkLockout(phoneNumber);
 
+    // Find the latest active (unused and unexpired) OTP record
+    const activeOtp = await this.prisma.otp.findFirst({
+      where: {
+        phoneNumber,
+        isUsed: false,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    if (activeOtp) {
+      const cooldownSeconds = Number(
+        this.configService.get<string>('OTP_COOLDOWN_SECONDS', '30'),
+      );
+      const timeElapsed =
+        (new Date().getTime() - activeOtp.createdAt.getTime()) / 1000;
+      if (timeElapsed < cooldownSeconds) {
+        const secondsLeft = Math.ceil(cooldownSeconds - timeElapsed);
+        throw new BadRequestException(
+          `Please wait ${secondsLeft} second(s) before requesting a new OTP.`,
+        );
+      }
+
+      // After cooldown, invalidate the previous active OTP code
+      await this.prisma.otp.update({
+        where: { id: activeOtp.id },
+        data: { isUsed: true },
+      });
+    }
+
     // Generate a 6-digit numeric OTP code
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = randomInt(100000, 1000000).toString();
 
     // Compute expiration timestamp (defaults to 5 minutes)
     const expirationMinutes = Number(
@@ -81,7 +134,7 @@ export class AuthService {
 
     return {
       success: true,
-      message: 'OTP sent successfully',
+      message: 'AUTH_OTP_SENT',
     };
   }
 
@@ -90,6 +143,14 @@ export class AuthService {
    * Generates a new OTP, invalidates the previous OTP, enforces a cooldown, and allows up to 3 attempts.
    */
   async resendOtp(phoneNumber: string, countryCode: string) {
+    let user = await this.usersService.findByPhoneNumber(phoneNumber);
+    if (!user) {
+      user = await this.usersService.create({
+        mobileNumber: phoneNumber,
+        countryCode,
+      });
+    }
+
     await this.checkLockout(phoneNumber);
 
     // 1. Find the latest unused and unexpired OTP record
@@ -116,7 +177,8 @@ export class AuthService {
     const cooldownSeconds = Number(
       this.configService.get<string>('OTP_COOLDOWN_SECONDS', '30'),
     );
-    const timeElapsed = (new Date().getTime() - otpRecord.createdAt.getTime()) / 1000;
+    const timeElapsed =
+      (new Date().getTime() - otpRecord.createdAt.getTime()) / 1000;
     if (timeElapsed < cooldownSeconds) {
       const secondsLeft = Math.ceil(cooldownSeconds - timeElapsed);
       throw new BadRequestException(
@@ -128,13 +190,9 @@ export class AuthService {
     if (otpRecord.resendCount >= 3) {
       // Lock login for 30 minutes
       const lockDurationMinutes = 30;
-      await this.prisma.userLockout.upsert({
-        where: { phoneNumber },
-        update: {
-          lockedUntil: new Date(Date.now() + lockDurationMinutes * 60 * 1000),
-        },
-        create: {
-          phoneNumber,
+      await this.prisma.userCredential.update({
+        where: { mobileNumber: phoneNumber },
+        data: {
           lockedUntil: new Date(Date.now() + lockDurationMinutes * 60 * 1000),
         },
       });
@@ -151,7 +209,7 @@ export class AuthService {
     });
 
     // 5. Generate a brand-new 6-digit numeric OTP code
-    const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    const newOtp = randomInt(100000, 1000000).toString();
 
     // 6. Compute new expiration timestamp
     const expirationMinutes = Number(
@@ -176,7 +234,7 @@ export class AuthService {
 
     return {
       success: true,
-      message: 'OTP resent successfully',
+      message: 'AUTH_OTP_RESENT',
       resendAttempt: otpRecord.resendCount + 1,
     };
   }
@@ -184,7 +242,21 @@ export class AuthService {
   /**
    * Validates OTP code, marks it as used, and performs registration or login.
    */
-  async verifyOtp(phoneNumber: string, countryCode: string, otpCode: string) {
+  async verifyOtp(
+    phoneNumber: string,
+    countryCode: string,
+    otpCode: string,
+    ipAddress?: string,
+    deviceInfo?: string,
+  ) {
+    let user = await this.usersService.findByPhoneNumber(phoneNumber);
+    if (!user) {
+      user = await this.usersService.create({
+        mobileNumber: phoneNumber,
+        countryCode,
+      });
+    }
+
     await this.checkLockout(phoneNumber);
 
     // Look up matching unused OTP record for the phone number
@@ -201,20 +273,16 @@ export class AuthService {
 
     if (!otpRecord || new Date() > otpRecord.expiresAt) {
       // Increment failed OTP attempts count
-      const lockout = await this.prisma.userLockout.upsert({
-        where: { phoneNumber },
-        update: {
-          failedOtpAttempts: { increment: 1 },
-        },
-        create: {
-          phoneNumber,
-          failedOtpAttempts: 1,
+      const updatedCred = await this.prisma.userCredential.update({
+        where: { mobileNumber: phoneNumber },
+        data: {
+          otpAttemptCount: { increment: 1 },
         },
       });
 
-      if (lockout.failedOtpAttempts >= 5) {
-        await this.prisma.userLockout.update({
-          where: { phoneNumber },
+      if (updatedCred.otpAttemptCount >= 5) {
+        await this.prisma.userCredential.update({
+          where: { mobileNumber: phoneNumber },
           data: {
             lockedUntil: new Date(Date.now() + 30 * 60 * 1000),
           },
@@ -225,9 +293,9 @@ export class AuthService {
       }
 
       if (!otpRecord) {
-        throw new BadRequestException('Invalid OTP code or phone number');
+        throw new BadRequestException('AUTH_INVALID_OTP');
       } else {
-        throw new BadRequestException('OTP code has expired');
+        throw new BadRequestException('AUTH_OTP_EXPIRED');
       }
     }
 
@@ -238,46 +306,63 @@ export class AuthService {
     });
 
     // Reset lockout counters on success
-    await this.prisma.userLockout.upsert({
-      where: { phoneNumber },
-      update: {
-        failedOtpAttempts: 0,
-        lockedUntil: null,
-      },
-      create: {
-        phoneNumber,
-        failedOtpAttempts: 0,
+    await this.prisma.userCredential.update({
+      where: { mobileNumber: phoneNumber },
+      data: {
+        otpAttemptCount: 0,
         lockedUntil: null,
       },
     });
 
-    // Check user existence
-    let user = await this.usersService.findByPhoneNumber(phoneNumber);
-    let isNewUser = false;
+    // Check if user has logged in before
+    const isNewUser = user.lastLoginAt === null;
 
-    if (!user) {
-      // Auto-create user account seamlessly
-      user = await this.usersService.create({
-        phoneNumber,
-        countryCode,
-        isVerified: true,
-        isActive: true,
-      });
-      isNewUser = true;
-    } else {
-      // Mark as verified if they weren't verified previously
-      if (!user.isVerified) {
-        user = await this.usersService.update(user.id, { isVerified: true });
-      }
-    }
+    // Update lastLoginAt
+    user = await this.usersService.update(user.id, {
+      lastLoginAt: new Date(),
+    });
+
+    // Generate token family ID
+    const familyId = randomUUID();
 
     // Issue cryptographic tokens
-    const accessToken = await this.generateAccessToken(user.id, user.phoneNumber);
-    const refreshToken = await this.generateRefreshToken(user.id, user.phoneNumber);
+    const accessToken = await this.generateAccessToken(user.id, phoneNumber);
+    const refreshToken = await this.generateRefreshToken(
+      user.id,
+      phoneNumber,
+      familyId,
+    );
+
+    // Hash refresh token for DB storage
+    const tokenHash = this.hashToken(refreshToken);
+
+    // Calculate expiration date for session (matches refreshToken 30 days duration)
+    const sessionExpiresAt = new Date();
+    sessionExpiresAt.setDate(sessionExpiresAt.getDate() + 30);
+
+    // Store Session in DB
+    const session = await this.prisma.session.create({
+      data: {
+        userId: user.id,
+        familyId,
+        tokenHash,
+        deviceInfo,
+        loginIp: ipAddress,
+        expiresAt: sessionExpiresAt,
+      },
+    });
+
+    // Record new login activity (detects other sessions and raises in-app alerts if multi-device)
+    await this.loginActivityService.recordNewLogin(
+      user.id,
+      deviceInfo || null,
+      ipAddress || null,
+      session.id,
+    );
 
     return {
       success: true,
-      message: 'Authentication successful',
+      message: 'AUTH_SUCCESS',
       isNewUser,
       accessToken,
       refreshToken,
@@ -286,36 +371,120 @@ export class AuthService {
   }
 
   /**
-   * Verifies the Refresh Token and issues a fresh Access Token.
+   * Verifies the Refresh Token and issues a fresh Access Token and Refresh Token (Rotation).
    */
   async refreshToken(token: string) {
     try {
       const secret = this.configService.get<string>('JWT_REFRESH_SECRET');
-      const payload = await this.jwtService.verifyAsync(token, { secret });
+      const payload = await this.jwtService.verifyAsync<{
+        sub: string;
+        phoneNumber: string;
+        familyId: string;
+      }>(token, { secret });
+      const userId = payload.sub;
+      const phoneNumber = payload.phoneNumber;
+      const familyId = payload.familyId;
 
-      // Build fresh Access Token
-      const accessToken = await this.generateAccessToken(
-        payload.sub,
-        payload.phoneNumber,
+      if (!userId || !familyId) {
+        throw new UnauthorizedException('AUTH_UNAUTHORIZED');
+      }
+
+      // Hash refresh token to find it in the DB
+      const hash = this.hashToken(token);
+      const session = await this.prisma.session.findUnique({
+        where: { tokenHash: hash },
+      });
+
+      if (!session) {
+        throw new UnauthorizedException('AUTH_UNAUTHORIZED');
+      }
+
+      // RFC 9700 Token Reuse Detection
+      if (session.revokedAt !== null) {
+        // Breach! Immediately revoke all sessions in this token family
+        await this.prisma.session.updateMany({
+          where: { familyId: session.familyId },
+          data: { revokedAt: new Date() },
+        });
+        throw new UnauthorizedException(
+          'Session compromised. Please log in again.',
+        );
+      }
+
+      // Generate a new access and refresh token with same familyId
+      const newAccessToken = await this.generateAccessToken(
+        userId,
+        phoneNumber,
       );
+      const newRefreshToken = await this.generateRefreshToken(
+        userId,
+        phoneNumber,
+        familyId,
+      );
+      const newHash = this.hashToken(newRefreshToken);
+
+      const sessionExpiresAt = new Date();
+      sessionExpiresAt.setDate(sessionExpiresAt.getDate() + 30);
+
+      // Create new session record and revoke the old one in a transaction
+      await this.prisma.$transaction(async (tx) => {
+        // Create new session
+        const newSessionRecord = await tx.session.create({
+          data: {
+            userId,
+            familyId,
+            tokenHash: newHash,
+            deviceInfo: session.deviceInfo,
+            loginIp: session.loginIp,
+            expiresAt: sessionExpiresAt,
+          },
+        });
+
+        // Revoke the old session and link it to the new one
+        await tx.session.update({
+          where: { id: session.id },
+          data: {
+            revokedAt: new Date(),
+            replacedBy: newSessionRecord.id,
+          },
+        });
+
+        return newSessionRecord;
+      });
 
       return {
         success: true,
-        message: 'Tokens refreshed successfully',
-        accessToken,
+        message: 'TOKENS_REFRESHED',
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
       };
     } catch (err) {
-      throw new UnauthorizedException('Invalid or expired refresh token');
+      if (err instanceof UnauthorizedException) {
+        throw err;
+      }
+      throw new UnauthorizedException('AUTH_UNAUTHORIZED');
     }
   }
 
   /**
-   * Performs standard stateless session logout cleanup.
+   * Revokes a session based on refresh token hash.
    */
-  async logout() {
+  async logout(refreshToken: string, userId: string) {
+    const hash = this.hashToken(refreshToken);
+    const session = await this.prisma.session.findUnique({
+      where: { tokenHash: hash },
+    });
+
+    if (session && session.userId === userId) {
+      await this.prisma.session.update({
+        where: { id: session.id },
+        data: { revokedAt: new Date() },
+      });
+    }
+
     return {
       success: true,
-      message: 'Logged out successfully. Tokens invalidated.',
+      message: 'LOGOUT_SUCCESS',
     };
   }
 
@@ -324,20 +493,29 @@ export class AuthService {
     phoneNumber: string,
   ): Promise<string> {
     const payload = { sub: userId, phoneNumber };
+    const expiresIn = this.configService.get<string>(
+      'JWT_ACCESS_EXPIRATION',
+      '15m',
+    );
     return this.jwtService.signAsync(payload, {
       secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
-      expiresIn: this.configService.get<string>('JWT_ACCESS_EXPIRATION', '15m') as any,
+      expiresIn: expiresIn as any,
     });
   }
 
   private async generateRefreshToken(
     userId: string,
     phoneNumber: string,
+    familyId: string,
   ): Promise<string> {
-    const payload = { sub: userId, phoneNumber };
+    const payload = { sub: userId, phoneNumber, familyId };
+    const expiresIn = this.configService.get<string>(
+      'JWT_REFRESH_EXPIRATION',
+      '30d',
+    );
     return this.jwtService.signAsync(payload, {
       secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-      expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRATION', '30d') as any,
+      expiresIn: expiresIn as any,
     });
   }
 }

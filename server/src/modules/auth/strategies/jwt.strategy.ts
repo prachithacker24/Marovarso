@@ -13,7 +13,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_ACCESS_SECRET') || 'mv_super_secure_access_secret_key_12345_abcde',
+      secretOrKey: configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
     });
   }
 
@@ -23,10 +23,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   async validate(payload: { sub: string; phoneNumber: string }) {
     const user = await this.usersService.findById(payload.sub);
     if (!user) {
-      throw new UnauthorizedException('User account no longer exists');
+      throw new UnauthorizedException('AUTH_UNAUTHORIZED');
     }
-    if (!user.isActive) {
-      throw new UnauthorizedException('User account has been deactivated');
+    if (user.accountStatus !== 'active') {
+      throw new UnauthorizedException('AUTH_UNAUTHORIZED');
     }
     return user;
   }

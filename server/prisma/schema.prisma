@@ -7,39 +7,112 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// ──────────────────────────────────────────────
+// TABLE 1 — USERS (Authentication identity)
+// A user may manage self, children, parents,
+// deceased ancestors, and family records.
+// User ≠ Person
+// ──────────────────────────────────────────────
 model User {
-  id          String   @id @default(uuid())
-  phoneNumber String   @unique
-  countryCode String
-  fullName    String?
-  isActive    Boolean  @default(true)
-  isVerified  Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String    @id @default(uuid())
+  accountType       String    @default("individual") @map("account_type")   // individual, guardian, admin
+  accountStatus     String    @default("active") @map("account_status")     // active, pending, suspended, deleted, locked
+  preferredLanguage String?   @map("preferred_language")
+  timezone          String?
+  lastLoginAt       DateTime? @map("last_login_at")
+  failedLoginCount  Int       @default(0) @map("failed_login_count")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")                            // Soft delete
 
+  credential      UserCredential?
+  sessions        Session[]
+  loginActivities LoginActivity[]
+
+  @@index([accountStatus], name: "idx_users_status")
+  @@index([createdAt], name: "idx_users_created_at")
   @@map("users")
 }
 
+// ──────────────────────────────────────────────
+// TABLE 2 — USER_CREDENTIALS (Login identifiers)
+// Stores login identifiers and OTP lockout state.
+// ──────────────────────────────────────────────
+model UserCredential {
+  id               String    @id @default(uuid())
+  userId           String    @unique @map("user_id")
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mobileNumber     String    @unique @map("mobile_number")
+  countryCode      String    @map("country_code")
+  email            String?   @unique
+  mpinHash         String?   @map("mpin_hash")                              // Hashed mPIN for transaction security
+  twoFactorEnabled Boolean   @default(false) @map("two_factor_enabled")
+  otpAttemptCount  Int       @default(0) @map("otp_attempt_count")          // Failed OTP verification attempts
+  otpLastSentAt    DateTime? @map("otp_last_sent_at")
+  lockedUntil      DateTime? @map("locked_until")                           // Lockout expiration
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@index([mobileNumber], name: "idx_credentials_mobile")
+  @@index([email], name: "idx_credentials_email")
+  @@map("user_credentials")
+}
+
+// ──────────────────────────────────────────────
+// TABLE 3 — SESSIONS (Device-aware token tracking)
+// Track login from different devices (windows,
+// android, ios) and support token rotation.
+// ──────────────────────────────────────────────
+model Session {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  familyId   String    @map("family_id")                                    // Token family for rotation chain
+  tokenHash  String    @unique @map("token_hash")                           // SHA-256 hash of refresh token
+  deviceInfo String?   @map("device_info")                                  // User-Agent string
+  loginIp    String?   @map("login_ip")                                     // Client IP address
+  loginAt    DateTime  @default(now()) @map("login_at")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")                                   // NULL = active session
+  replacedBy String?   @map("replaced_by")                                  // Points to new session ID in rotation
+
+  @@index([userId], name: "idx_sessions_user")
+  @@index([expiresAt], name: "idx_sessions_expiry")
+  @@index([familyId], name: "idx_sessions_family")
+  @@map("sessions")
+}
+
+// ──────────────────────────────────────────────
+// TABLE 4 — OTP (Verification transactions)
+// ──────────────────────────────────────────────
 model Otp {
   id          String   @id @default(uuid())
-  phoneNumber String
+  phoneNumber String   @map("phone_number")
   otp         String
-  expiresAt   DateTime
-  isUsed      Boolean  @default(false)
-  resendCount Int      @default(0)
-  createdAt   DateTime @default(now())
+  expiresAt   DateTime @map("expires_at")
+  isUsed      Boolean  @default(false) @map("is_used")
+  resendCount Int      @default(0) @map("resend_count")
+  createdAt   DateTime @default(now()) @map("created_at")
 
+  @@index([phoneNumber, isUsed], name: "idx_otp_phone_active")
   @@map("otps")
 }
 
-model UserLockout {
-  id                String    @id @default(uuid())
-  phoneNumber       String    @unique
-  failedOtpAttempts Int       @default(0)
-  lockedUntil       DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+// ──────────────────────────────────────────────
+// TABLE 5 — LOGIN_ACTIVITY (Notification system)
+// Records new device logins so users can review
+// and mark suspicious activity.
+// ──────────────────────────────────────────────
+model LoginActivity {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceInfo String?  @map("device_info")                                   // User-Agent of the new login
+  ipAddress  String?  @map("ip_address")
+  status     String   @default("trusted") @map("status")                    // trusted, suspicious, blocked
+  notified   Boolean  @default(false)                                       // Has user been notified?
+  sessionId  String?  @map("session_id")                                    // The session this activity refers to
+  createdAt  DateTime @default(now()) @map("created_at")
 
-  @@map("user_lockouts")
+  @@index([userId], name: "idx_login_activity_user")
+  @@map("login_activities")
 }
-

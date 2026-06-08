@@ -1,18 +1,38 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { NormalizationPipe } from './common/pipes/normalization.pipe';
+import helmet from 'helmet';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
+  const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+  const isProduction = nodeEnv === 'production';
+
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      hsts: isProduction,
+    }),
+  );
+
+  // Configure global prefix and URI versioning
+  app.setGlobalPrefix('api');
+  app.enableVersioning({
+    type: VersioningType.URI,
+    defaultVersion: '1',
+  });
 
   // 1. Enable global CORS
-  const corsOrigin = configService.get<string>('CORS_ORIGIN', 'http://localhost:3000');
+  const corsOrigin = configService.get<string>(
+    'CORS_ORIGIN',
+    'http://localhost:3000',
+  );
   app.enableCors({
     origin: corsOrigin.split(','),
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
@@ -56,8 +76,11 @@ async function bootstrap() {
     )
     .build();
 
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document);
+
+  if (!isProduction) {
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   // 6. Bind listener port
   const port = configService.get<number>('PORT', 3001);
@@ -65,7 +88,14 @@ async function bootstrap() {
 
   console.log(`\n┌────────────────────────────────────────────────────────┐`);
   console.log(`  🚀  MaroVarso Backend Server listening on Port ${port}      `);
-  console.log(`  📝  Swagger Interactive Docs: http://localhost:${port}/api/docs  `);
+  console.log(`  🌐  Environment: ${nodeEnv}                                `);
+  if (!isProduction) {
+    console.log(
+      `  📝  Swagger Interactive Docs: http://localhost:${port}/api/docs  `,
+    );
+  }
   console.log(`└────────────────────────────────────────────────────────┘\n`);
 }
-bootstrap();
+bootstrap().catch((err) => {
+  console.error('Failed to start MaroVarso Backend Server:', err);
+});

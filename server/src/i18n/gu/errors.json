@@ -1,0 +1,7 @@
+{
+  "AUTH_INVALID_OTP": "અમાન્ય OTP.",
+  "AUTH_OTP_EXPIRED": "OTP સમાપ્ત થઈ ગયો છે.",
+  "AUTH_UNAUTHORIZED": "તમને પરવાનગી નથી.",
+  "COMMON_VALIDATION_FAILED": "માન્યતા નિષ્ફળ ગઈ.",
+  "MEMBER_NOT_FOUND": "પરિવાર સભ્ય મળ્યો નથી."
+}

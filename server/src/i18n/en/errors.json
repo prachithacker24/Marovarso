@@ -1,0 +1,7 @@
+{
+  "AUTH_INVALID_OTP": "Invalid OTP.",
+  "AUTH_OTP_EXPIRED": "OTP has expired.",
+  "AUTH_UNAUTHORIZED": "You are not authorized.",
+  "COMMON_VALIDATION_FAILED": "Validation failed.",
+  "MEMBER_NOT_FOUND": "Family member not found."
+}

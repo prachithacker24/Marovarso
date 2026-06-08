@@ -9,7 +9,8 @@ export class VerifyOtpDto {
   @IsString()
   @IsNotEmpty()
   @Matches(/^\d{7,15}$/, {
-    message: 'phoneNumber must be a valid numeric string between 7 and 15 digits',
+    message:
+      'phoneNumber must be a valid numeric string between 7 and 15 digits',
   })
   phoneNumber: string;
 

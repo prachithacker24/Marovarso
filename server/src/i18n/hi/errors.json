@@ -1,0 +1,7 @@
+{
+  "AUTH_INVALID_OTP": "अमान्य OTP.",
+  "AUTH_OTP_EXPIRED": "OTP समाप्त हो गया है.",
+  "AUTH_UNAUTHORIZED": "आपको अनुमति नहीं है.",
+  "COMMON_VALIDATION_FAILED": "वैलिडेशन विफल हुआ.",
+  "MEMBER_NOT_FOUND": "परिवार सदस्य नहीं मिला."
+}

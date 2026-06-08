@@ -1,0 +1,7 @@
+{
+  "AUTH_OTP_SENT": "OTP sent successfully.",
+  "AUTH_OTP_RESENT": "OTP resent successfully.",
+  "AUTH_SUCCESS": "Authentication successful.",
+  "TOKENS_REFRESHED": "Tokens refreshed successfully.",
+  "LOGOUT_SUCCESS": "Logged out successfully."
+}
