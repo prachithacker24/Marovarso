@@ -116,3 +116,35 @@ model LoginActivity {
   @@index([userId], name: "idx_login_activity_user")
   @@map("login_activities")
 }
+
+// ──────────────────────────────────────────────
+// TABLE 6 — AUDIT LOG
+// Records all significant actions in the system.
+// Example: OTP_SENT, OTP_VERIFIED, OTP_ABUSE, etc.
+// Useful for debugging and security.
+// ──────────────────────────────────────────────
+model AuditLog {
+  id            String    @id @default(uuid())
+  action        String    // CREATE, UPDATE, DELETE, OTP_SENT, OTP_VERIFIED, OTP_ABUSE, etc.
+  entityType    String?   @map("entity_type") // USER, FAMILY, AUTH, etc.
+  entityId      String?   @map("entity_id")
+  roleId        String?   @map("role_id")     // User ID, Admin ID, or System ID performing the action
+  roleType      String?   @map("role_type")   // USER, SYSTEM, SUPER_ADMIN, etc.
+  previousState Json?     @map("previous_state") // State of entity before action
+  currentState  Json?     @map("current_state")  // State of entity after action
+  description   String?
+  severity      String?   // LOW, MEDIUM, HIGH, CRITICAL
+  status        String?   // SUCCESS, FAILED
+  requestId     String?   @map("request_id")
+  ipAddress     String?   @map("ip_address")
+  userAgent     String?   @map("user_agent")
+  metadata      Json?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([action], name: "idx_audit_logs_action")
+  @@index([roleId], name: "idx_audit_logs_role")
+  @@index([entityType, entityId], name: "idx_audit_logs_entity")
+  @@index([createdAt], name: "idx_audit_logs_created_at")
+  @@map("audit_logs")
+}
+

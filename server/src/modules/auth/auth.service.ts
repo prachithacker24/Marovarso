@@ -9,6 +9,7 @@ import { SmsService } from './sms.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { LoginActivityService } from './login-activity.service';
+import { AuditService } from '../audit/audit.service';
 import { randomInt, createHash, randomUUID } from 'crypto';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly loginActivityService: LoginActivityService,
+    private readonly auditService: AuditService,
   ) {}
 
   /**
@@ -63,7 +65,14 @@ export class AuthService {
   /**
    * Generates a 6 digit OTP, stores it in the DB, and dispatches it.
    */
-  async sendOtp(phoneNumber: string, countryCode: string) {
+  async sendOtp(
+    phoneNumber: string,
+    countryCode: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
+    const requestId = randomUUID();
+
     // Find or create user immediately to manage lockout state on credential
     let user = await this.usersService.findByPhoneNumber(phoneNumber);
     if (!user) {
@@ -74,6 +83,34 @@ export class AuthService {
     }
 
     await this.checkLockout(phoneNumber);
+
+    // Abuse detection: check excessive OTP requests (limit to 5 in 10 minutes)
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const recentOtpCount = await this.prisma.otp.count({
+      where: {
+        phoneNumber,
+        createdAt: { gte: tenMinutesAgo },
+      },
+    });
+
+    if (recentOtpCount >= 5) {
+      await this.auditService.logSecurityEvent({
+        eventType: 'OTP_ABUSE',
+        severity: 'HIGH',
+        description: `Excessive OTP requests (more than 5 in 10 minutes)`,
+        status: 'FAILED',
+        roleId: user.id,
+        roleType: 'USER',
+        ipAddress,
+        userAgent,
+        metadata: { phoneNumber, requestCount: recentOtpCount },
+        requestId,
+      });
+
+      throw new BadRequestException(
+        'Excessive OTP requests. Please try again after 10 minutes.',
+      );
+    }
 
     // Find the latest active (unused and unexpired) OTP record
     const activeOtp = await this.prisma.otp.findFirst({
@@ -132,6 +169,21 @@ export class AuthService {
     // Dispatch SMS conditionally
     await this.smsService.sendOtp(phoneNumber, countryCode, otp);
 
+    // Log successful OTP sent event
+    await this.auditService.log({
+      action: 'OTP_SENT',
+      entityType: 'AUTH',
+      entityId: user.id,
+      roleId: user.id,
+      roleType: 'USER',
+      status: 'SUCCESS',
+      metadata: { phoneNumber },
+      requestId,
+      ipAddress,
+      userAgent,
+      description: 'OTP code generated and sent successfully',
+    });
+
     return {
       success: true,
       message: 'AUTH_OTP_SENT',
@@ -142,7 +194,12 @@ export class AuthService {
    * Resends the active OTP for a phone number.
    * Generates a new OTP, invalidates the previous OTP, enforces a cooldown, and allows up to 3 attempts.
    */
-  async resendOtp(phoneNumber: string, countryCode: string) {
+  async resendOtp(
+    phoneNumber: string,
+    countryCode: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
     let user = await this.usersService.findByPhoneNumber(phoneNumber);
     if (!user) {
       user = await this.usersService.create({
@@ -197,6 +254,19 @@ export class AuthService {
         },
       });
 
+      // Log OTP Abuse event
+      await this.auditService.logSecurityEvent({
+        eventType: 'OTP_ABUSE',
+        severity: 'HIGH',
+        description: `Maximum resend attempts (3) exceeded`,
+        status: 'FAILED',
+        roleId: user.id,
+        roleType: 'USER',
+        ipAddress,
+        userAgent,
+        metadata: { phoneNumber, resendCount: otpRecord.resendCount },
+      });
+
       throw new BadRequestException(
         'Maximum resend attempts (3) exceeded. Login is locked for 30 minutes.',
       );
@@ -231,6 +301,20 @@ export class AuthService {
 
     // 8. Dispatch SMS with the brand-new OTP code
     await this.smsService.sendOtp(phoneNumber, countryCode, newOtp);
+
+    // Log successful OTP resent event
+    await this.auditService.log({
+      action: 'OTP_RESENT',
+      entityType: 'AUTH',
+      entityId: user.id,
+      roleId: user.id,
+      roleType: 'USER',
+      status: 'SUCCESS',
+      metadata: { phoneNumber, resendCount: otpRecord.resendCount + 1 },
+      ipAddress,
+      userAgent,
+      description: `OTP code resent successfully. Attempt #${otpRecord.resendCount + 1}`,
+    });
 
     return {
       success: true,
@@ -280,6 +364,26 @@ export class AuthService {
         },
       });
 
+      const failureReason = !otpRecord ? 'AUTH_INVALID_OTP' : 'AUTH_OTP_EXPIRED';
+
+      // Log verification failure event
+      await this.auditService.log({
+        action: 'OTP_VERIFICATION_FAILED',
+        entityType: 'AUTH',
+        entityId: user.id,
+        roleId: user.id,
+        roleType: 'USER',
+        status: 'FAILED',
+        metadata: {
+          phoneNumber,
+          attemptCount: updatedCred.otpAttemptCount,
+          failureReason,
+        },
+        ipAddress,
+        userAgent: deviceInfo,
+        description: `OTP verification failed: ${failureReason}. Attempt #${updatedCred.otpAttemptCount}`,
+      });
+
       if (updatedCred.otpAttemptCount >= 5) {
         await this.prisma.userCredential.update({
           where: { mobileNumber: phoneNumber },
@@ -287,6 +391,20 @@ export class AuthService {
             lockedUntil: new Date(Date.now() + 30 * 60 * 1000),
           },
         });
+
+        // Trigger OTP_ABUSE security event
+        await this.auditService.logSecurityEvent({
+          eventType: 'OTP_ABUSE',
+          severity: 'HIGH',
+          description: `More than 5 failed OTP verification attempts`,
+          status: 'FAILED',
+          roleId: user.id,
+          roleType: 'USER',
+          ipAddress,
+          userAgent: deviceInfo,
+          metadata: { phoneNumber, attemptCount: updatedCred.otpAttemptCount },
+        });
+
         throw new BadRequestException(
           'Too many failed attempts. Login is locked for 30 minutes.',
         );
@@ -346,8 +464,8 @@ export class AuthService {
         userId: user.id,
         familyId,
         tokenHash,
-        deviceInfo,
-        loginIp: ipAddress,
+        deviceInfo: deviceInfo || null,
+        loginIp: ipAddress || null,
         expiresAt: sessionExpiresAt,
       },
     });
@@ -359,6 +477,20 @@ export class AuthService {
       ipAddress || null,
       session.id,
     );
+
+    // Log successful OTP verification event
+    await this.auditService.log({
+      action: 'OTP_VERIFIED',
+      entityType: 'AUTH',
+      entityId: user.id,
+      roleId: user.id,
+      roleType: 'USER',
+      status: 'SUCCESS',
+      metadata: { phoneNumber },
+      ipAddress,
+      userAgent: deviceInfo,
+      description: 'User successfully verified OTP and logged in',
+    });
 
     return {
       success: true,
@@ -508,7 +640,7 @@ export class AuthService {
     phoneNumber: string,
     familyId: string,
   ): Promise<string> {
-    const payload = { sub: userId, phoneNumber, familyId };
+    const payload = { sub: userId, phoneNumber, familyId, jti: randomUUID() };
     const expiresIn = this.configService.get<string>(
       'JWT_REFRESH_EXPIRATION',
       '30d',

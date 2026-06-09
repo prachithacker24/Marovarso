@@ -4,6 +4,7 @@ import { PrismaModule } from './modules/prisma/prisma.module';
 import { HealthModule } from './modules/health/health.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { AuditModule } from './modules/audit/audit.module';
 import {
   AcceptLanguageResolver,
   HeaderResolver,
@@ -44,6 +45,7 @@ import * as path from 'path';
       ],
     }),
     PrismaModule,
+    AuditModule,
     HealthModule,
     UsersModule,
     AuthModule,

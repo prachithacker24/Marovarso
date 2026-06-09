@@ -9,6 +9,9 @@ import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from '../src/modules/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor';
+import { GlobalExceptionFilter } from '../src/common/filters/global-exception.filter';
 
 describe('AuthController (e2e)', () => {
   let app: INestApplication<App>;
@@ -19,6 +22,10 @@ describe('AuthController (e2e)', () => {
   const testCountryCode = '+91';
 
   beforeAll(async () => {
+    jest
+      .spyOn(ThrottlerGuard.prototype, 'canActivate')
+      .mockImplementation(() => Promise.resolve(true));
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -30,6 +37,8 @@ describe('AuthController (e2e)', () => {
       defaultVersion: '1',
     });
     app.useGlobalPipes(new ValidationPipe({ transform: true }));
+    app.useGlobalInterceptors(new ResponseInterceptor());
+    app.useGlobalFilters(new GlobalExceptionFilter());
     await app.init();
 
     prisma = app.get(PrismaService);
@@ -39,17 +48,23 @@ describe('AuthController (e2e)', () => {
   beforeEach(async () => {
     // Clear OTPs and users related to the test phone number to keep runs stateless
     await prisma.otp.deleteMany({ where: { phoneNumber: testPhoneNumber } });
-    await prisma.user.deleteMany({ where: { phoneNumber: testPhoneNumber } });
-    await prisma.userLockout.deleteMany({
-      where: { phoneNumber: testPhoneNumber },
+    await prisma.user.deleteMany({
+      where: {
+        credential: {
+          mobileNumber: testPhoneNumber,
+        },
+      },
     });
   });
 
   afterAll(async () => {
     await prisma.otp.deleteMany({ where: { phoneNumber: testPhoneNumber } });
-    await prisma.user.deleteMany({ where: { phoneNumber: testPhoneNumber } });
-    await prisma.userLockout.deleteMany({
-      where: { phoneNumber: testPhoneNumber },
+    await prisma.user.deleteMany({
+      where: {
+        credential: {
+          mobileNumber: testPhoneNumber,
+        },
+      },
     });
     await app.close();
   });
@@ -66,7 +81,9 @@ describe('AuthController (e2e)', () => {
 
       expect(response.body).toEqual({
         success: true,
-        message: 'OTP sent successfully',
+        code: 'AUTH_OTP_SENT',
+        message: 'OTP sent successfully.',
+        data: null,
       });
 
       const otpRecord = await prisma.otp.findFirst({
@@ -253,8 +270,11 @@ describe('AuthController (e2e)', () => {
 
       expect(res.body).toEqual({
         success: true,
-        message: 'OTP resent successfully',
-        resendAttempt: 1,
+        code: 'AUTH_OTP_RESENT',
+        message: 'OTP resent successfully.',
+        data: {
+          resendAttempt: 1,
+        },
       });
 
       // Validate OTP #0 was invalidated
@@ -280,7 +300,7 @@ describe('AuthController (e2e)', () => {
           countryCode: testCountryCode,
         })
         .expect(200);
-      expect(res.body.resendAttempt).toBe(2);
+      expect(res.body.data.resendAttempt).toBe(2);
 
       // Validate OTP #1 was invalidated
       const otp1Checked = await prisma.otp.findUnique({
@@ -303,7 +323,7 @@ describe('AuthController (e2e)', () => {
           countryCode: testCountryCode,
         })
         .expect(200);
-      expect(res.body.resendAttempt).toBe(3);
+      expect(res.body.data.resendAttempt).toBe(3);
 
       const otp3 = await prisma.otp.findFirst({
         where: { phoneNumber: testPhoneNumber, isUsed: false },
@@ -389,7 +409,7 @@ describe('AuthController (e2e)', () => {
         .expect(200);
 
       expect(verifyRes.body.success).toBe(true);
-      expect(verifyRes.body.accessToken).toBeDefined();
+      expect(verifyRes.body.data.accessToken).toBeDefined();
 
       // Cleanup mock
       jest.spyOn(configService, 'get').mockRestore();
@@ -478,7 +498,7 @@ describe('AuthController (e2e)', () => {
             otp: '000000', // incorrect otp
           })
           .expect(400);
-        expect(verifyRes.body.message).toContain('Invalid OTP code');
+        expect(verifyRes.body.message).toContain('Invalid OTP');
       }
 
       // 3. 5th incorrect attempt should lock login for 30 minutes
@@ -527,8 +547,8 @@ describe('AuthController (e2e)', () => {
         })
         .expect(200);
 
-      accessToken = verifyRes.body.accessToken;
-      refreshToken = verifyRes.body.refreshToken;
+      accessToken = verifyRes.body.data.accessToken;
+      refreshToken = verifyRes.body.data.refreshToken;
     });
 
     it('GET /api/v1/auth/me - should retrieve user profile with valid token', async () => {
@@ -537,8 +557,8 @@ describe('AuthController (e2e)', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
 
-      expect(profileRes.body.phoneNumber).toBe(testPhoneNumber);
-      expect(profileRes.body.countryCode).toBe(testCountryCode);
+      expect(profileRes.body.data.credential.mobileNumber).toBe(testPhoneNumber);
+      expect(profileRes.body.data.credential.countryCode).toBe(testCountryCode);
     });
 
     it('GET /api/v1/auth/me - should reject profile request with missing or invalid token', async () => {
@@ -557,7 +577,7 @@ describe('AuthController (e2e)', () => {
         .expect(200);
 
       expect(refreshRes.body.success).toBe(true);
-      expect(refreshRes.body.accessToken).toBeDefined();
+      expect(refreshRes.body.data.accessToken).toBeDefined();
     });
 
     it('POST /api/v1/auth/token/refresh - should reject invalid refresh token', async () => {
@@ -570,10 +590,12 @@ describe('AuthController (e2e)', () => {
     it('POST /api/v1/auth/logout - should perform logout successfully', async () => {
       const logoutRes = await request(app.getHttpServer())
         .post('/api/v1/auth/logout')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ refreshToken })
         .expect(200);
 
       expect(logoutRes.body.success).toBe(true);
-      expect(logoutRes.body.message).toContain('Logged out successfully');
+      expect(logoutRes.body.message).toContain('Logged out successfully.');
     });
   });
 });

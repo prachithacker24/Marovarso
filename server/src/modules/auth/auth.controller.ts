@@ -45,10 +45,16 @@ export class AuthController {
     },
   })
   @ApiResponse({ status: 400, description: 'Invalid input payload' })
-  async sendOtp(@Body() sendOtpDto: SendOtpDto) {
+  async sendOtp(@Body() sendOtpDto: SendOtpDto, @Req() req: Request) {
+    const ipAddress =
+      req.ip || (req.headers['x-forwarded-for'] as string) || '';
+    const deviceInfo = req.headers['user-agent'] || '';
+
     return this.authService.sendOtp(
       sendOtpDto.phoneNumber,
       sendOtpDto.countryCode,
+      ipAddress,
+      deviceInfo,
     );
   }
 
@@ -71,10 +77,16 @@ export class AuthController {
     },
   })
   @ApiResponse({ status: 400, description: 'No active OTP or limit exceeded' })
-  async resendOtp(@Body() sendOtpDto: SendOtpDto) {
+  async resendOtp(@Body() sendOtpDto: SendOtpDto, @Req() req: Request) {
+    const ipAddress =
+      req.ip || (req.headers['x-forwarded-for'] as string) || '';
+    const deviceInfo = req.headers['user-agent'] || '';
+
     return this.authService.resendOtp(
       sendOtpDto.phoneNumber,
       sendOtpDto.countryCode,
+      ipAddress,
+      deviceInfo,
     );
   }
 
