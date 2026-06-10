@@ -2,8 +2,10 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  HttpStatus,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AppException } from '../../common/exceptions/app.exception';
 
 @Injectable()
 export class LoginActivityService {
@@ -83,13 +85,11 @@ export class LoginActivityService {
     });
 
     if (!activity) {
-      throw new NotFoundException('Login activity not found');
+      throw new AppException('AUTH_LOGIN_ACTIVITY_NOT_FOUND', HttpStatus.NOT_FOUND);
     }
 
     if (activity.userId !== userId) {
-      throw new ForbiddenException(
-        'You do not have permission to modify this activity',
-      );
+      throw new AppException('AUTH_LOGIN_ACTIVITY_FORBIDDEN', HttpStatus.FORBIDDEN);
     }
 
     if (activity.sessionId) {

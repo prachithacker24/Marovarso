@@ -3,5 +3,15 @@
   "AUTH_OTP_EXPIRED": "OTP समाप्त हो गया है.",
   "AUTH_UNAUTHORIZED": "आपको अनुमति नहीं है.",
   "COMMON_VALIDATION_FAILED": "वैलिडेशन विफल हुआ.",
-  "MEMBER_NOT_FOUND": "परिवार सदस्य नहीं मिला."
+  "MEMBER_NOT_FOUND": "परिवार सदस्य नहीं मिला.",
+  "AUTH_LOCKOUT": "लॉगिन अस्थायी रूप से लॉक कर दिया गया है। कृपया {minutes} मिनट के बाद पुन: प्रयास करें।",
+  "AUTH_EXCESSIVE_REQUESTS": "अत्यधिक OTP अनुरोध। कृपया 10 मिनट के बाद पुनः प्रयास करें।",
+  "AUTH_OTP_COOLDOWN": "कृपया नया OTP अनुरोध करने से पहले {seconds} सेकंड प्रतीक्षा करें।",
+  "AUTH_NO_ACTIVE_OTP": "कोई सक्रिय OTP अनुरोध नहीं मिला या यह समाप्त हो गया है। कृपया एक नया OTP अनुरोध करें।",
+  "AUTH_OTP_RESEND_COOLDOWN": "कृपया OTP पुनः भेजने से पहले {seconds} सेकंड प्रतीक्षा करें।",
+  "AUTH_MAX_RESEND_EXCEEDED": "अधिकतम पुन: भेजने के प्रयास (3) पूरे हो चुके हैं। लॉगिन 30 मिनट के लिए लॉक है।",
+  "AUTH_MAX_VERIFY_EXCEEDED": "बहुत सारे विफल प्रयास। लॉगिन 30 मिनट के लिए लॉक है।",
+  "AUTH_SESSION_COMPROMISED": "सत्र से समझौता किया गया है। कृपया दोबारा लॉग इन करें।",
+  "AUTH_LOGIN_ACTIVITY_NOT_FOUND": "लॉगिन गतिविधि नहीं मिली।",
+  "AUTH_LOGIN_ACTIVITY_FORBIDDEN": "आपके पास इस गतिविधि को संशोधित करने की अनुमति नहीं है।"
 }

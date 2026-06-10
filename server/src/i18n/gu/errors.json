@@ -3,5 +3,15 @@
   "AUTH_OTP_EXPIRED": "OTP સમાપ્ત થઈ ગયો છે.",
   "AUTH_UNAUTHORIZED": "તમને પરવાનગી નથી.",
   "COMMON_VALIDATION_FAILED": "માન્યતા નિષ્ફળ ગઈ.",
-  "MEMBER_NOT_FOUND": "પરિવાર સભ્ય મળ્યો નથી."
+  "MEMBER_NOT_FOUND": "પરિવાર સભ્ય મળ્યો નથી.",
+  "AUTH_LOCKOUT": "લૉગિન અસ્થાયી રૂપે લૉક કરેલ છે. કૃપા કરીને {minutes} મિનિટ પછી ફરી પ્રયાસ કરો.",
+  "AUTH_EXCESSIVE_REQUESTS": "અતિશય OTP વિનંતીઓ. કૃપા કરીને 10 મિનિટ પછી ફરી પ્રયાસ કરો.",
+  "AUTH_OTP_COOLDOWN": "કૃપા કરીને નવો OTP વિનંતી કરતા પહેલા {seconds} સેકન્ડ રાહ જુઓ.",
+  "AUTH_NO_ACTIVE_OTP": "કોઈ સક્રિય OTP વિનંતી મળી નથી અથવા તેની મુદત પૂરી થઈ ગઈ છે. કૃપા કરીને નવી OTP વિનંતી કરો.",
+  "AUTH_OTP_RESEND_COOLDOWN": "કૃપા કરીને OTP ફરીથી મોકલતા પહેલા {seconds} સેકન્ડ રાહ જુઓ.",
+  "AUTH_MAX_RESEND_EXCEEDED": "મહત્તમ ફરીથી મોકલવાના પ્રયાસો (3) ઓળંગાઈ ગયા છે. લૉગિન 30 મિનિટ માટે લૉક છે.",
+  "AUTH_MAX_VERIFY_EXCEEDED": "ખૂબ જ નિષ્ફળ પ્રયાસો. લૉગિન 30 મિનિટ માટે લૉક છે.",
+  "AUTH_SESSION_COMPROMISED": "સત્ર સાથે ચેડા થયા છે. કૃપા કરીને ફરીથી લોગ ઇન કરો.",
+  "AUTH_LOGIN_ACTIVITY_NOT_FOUND": "લૉગિન પ્રવૃત્તિ મળી નથી.",
+  "AUTH_LOGIN_ACTIVITY_FORBIDDEN": "તમારી પાસે આ પ્રવૃત્તિમાં સુધારો કરવાની પરવાનગી નથી."
 }

@@ -74,6 +74,17 @@ async function bootstrap() {
       },
       'bearer', // This matches the security key referenced by @ApiBearerAuth()
     )
+    .addGlobalParameters({
+      name: 'Accept-Language',
+      in: 'header',
+      required: false,
+      schema: {
+        type: 'string',
+        enum: ['en', 'hi', 'gu'],
+        default: 'en',
+      },
+      description: 'Preferred language for localized API responses and error messages',
+    })
     .build();
 
 

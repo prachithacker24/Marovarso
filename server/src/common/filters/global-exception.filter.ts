@@ -9,6 +9,8 @@ import {
 import { Response, Request } from 'express';
 import { Prisma } from '@prisma/client';
 import { I18nContext } from 'nestjs-i18n';
+import { randomUUID } from 'crypto';
+import { AppException } from '../exceptions/app.exception';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -25,8 +27,22 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     let errors: string[] = [];
 
     const i18n = I18nContext.current();
+    const resolvedLang = i18n ? i18n.lang : 'en';
+    const supportedLanguages = ['en', 'hi', 'gu'];
+    const lang = supportedLanguages.includes(resolvedLang) ? resolvedLang : 'en';
+    const requestId = (request as any).requestId || randomUUID();
 
-    if (exception instanceof HttpException) {
+    if (exception instanceof AppException) {
+      status = exception.getStatus();
+      code = exception.code;
+      const translated = i18n
+        ? i18n.translate(`errors.${code}`, { lang, defaultValue: code })
+        : code;
+      message = translated;
+      errors = exception.details
+        ? (Array.isArray(exception.details) ? exception.details : [exception.details])
+        : [translated];
+    } else if (exception instanceof HttpException) {
       status = exception.getStatus();
       const exceptionResponse = exception.getResponse();
 
@@ -37,6 +53,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           code = 'COMMON_VALIDATION_FAILED';
           message = i18n
             ? i18n.translate('errors.COMMON_VALIDATION_FAILED', {
+                lang,
                 defaultValue: 'Validation failed.',
               })
             : 'Validation failed.';
@@ -49,7 +66,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           ) {
             code = rawMessage;
             const translated = i18n
-              ? i18n.translate(`errors.${code}`, { defaultValue: code })
+              ? i18n.translate(`errors.${code}`, { lang, defaultValue: code })
               : code;
             message = translated;
             errors = [translated];
@@ -59,6 +76,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
               code = 'AUTH_UNAUTHORIZED';
               const translated = i18n
                 ? i18n.translate('errors.AUTH_UNAUTHORIZED', {
+                    lang,
                     defaultValue: 'You are not authorized.',
                   })
                 : 'You are not authorized.';
@@ -78,7 +96,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         if (typeof rawMessage === 'string' && /^[A-Z0-9_]+$/.test(rawMessage)) {
           code = rawMessage;
           const translated = i18n
-            ? i18n.translate(`errors.${code}`, { defaultValue: code })
+            ? i18n.translate(`errors.${code}`, { lang, defaultValue: code })
             : code;
           message = translated;
           errors = [translated];
@@ -134,11 +152,18 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       exception instanceof Error ? exception.stack : JSON.stringify(exception),
     );
 
-    response.status(status).json({
-      success: false,
+    const errorResponse: any = {
       code,
       message,
-      errors: errors.length > 0 ? errors : [message],
+    };
+    if (errors && errors.length > 0 && (code === 'COMMON_VALIDATION_FAILED' || errors[0] !== message)) {
+      errorResponse.details = { errors };
+    }
+
+    response.status(status).json({
+      success: false,
+      error: errorResponse,
+      ...(requestId ? { meta: { requestId } } : {}),
     });
   }
 }
