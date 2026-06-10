@@ -43,6 +43,10 @@ Ensure you are inside the `server/` directory:
 ```bash
 npm install
 ```
+To view installed dependencies:
+```bash
+npm list --depth=0
+```
 
 ### 2. Configure Database & Environment
 Copy the configuration parameters or update [server/.env](file:///d:/blockbuster/Marovarso/server/.env) with your credentials:
