@@ -13,5 +13,11 @@
   "AUTH_MAX_VERIFY_EXCEEDED": "बहुत सारे विफल प्रयास। लॉगिन 30 मिनट के लिए लॉक है।",
   "AUTH_SESSION_COMPROMISED": "सत्र से समझौता किया गया है। कृपया दोबारा लॉग इन करें।",
   "AUTH_LOGIN_ACTIVITY_NOT_FOUND": "लॉगिन गतिविधि नहीं मिली।",
-  "AUTH_LOGIN_ACTIVITY_FORBIDDEN": "आपके पास इस गतिविधि को संशोधित करने की अनुमति नहीं है।"
+  "AUTH_LOGIN_ACTIVITY_FORBIDDEN": "आपके पास इस गतिविधि को संशोधित करने की अनुमति नहीं है।",
+  "INTERNAL_SERVER_ERROR": "आंतरिक सर्वर त्रुटि।",
+  "DATABASE_CONFLICT": "डेटाबेस अद्वितीय प्रतिबंध उल्लंघन हुआ।",
+  "RESOURCE_NOT_FOUND": "संसाधन नहीं मिला।",
+  "DATABASE_ERROR": "डेटाबेस ऑपरेशन विफल रहा।",
+  "UNKNOWN_ERROR": "एक अज्ञात त्रुटि हुई।",
+  "BAD_REQUEST": "अमान्य अनुरोध।"
 }

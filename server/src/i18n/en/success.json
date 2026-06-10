@@ -3,5 +3,12 @@
   "AUTH_OTP_RESENT": "OTP resent successfully.",
   "AUTH_SUCCESS": "Authentication successful.",
   "TOKENS_REFRESHED": "Tokens refreshed successfully.",
-  "LOGOUT_SUCCESS": "Logged out successfully."
+  "LOGOUT_SUCCESS": "Logged out successfully.",
+  "SESSIONS_RETRIEVED": "Active sessions retrieved successfully.",
+  "SESSION_REVOKED": "Session revoked successfully.",
+  "ALL_SESSIONS_REVOKED": "All sessions revoked successfully.",
+  "LOGIN_ACTIVITY_RETRIEVED": "Login activities retrieved successfully.",
+  "LOGIN_MARKED_SUSPICIOUS": "Login activity marked as suspicious and session revoked.",
+  "PROFILE_RETRIEVED": "User profile details retrieved successfully.",
+  "COMMON_SUCCESS": "Operation completed successfully."
 }

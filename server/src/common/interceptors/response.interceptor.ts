@@ -27,6 +27,10 @@ export class ResponseInterceptor implements NestInterceptor {
     return next.handle().pipe(
       map((res) => {
         const i18n = I18nContext.current();
+        const resolvedLang = i18n ? i18n.lang : 'en';
+        const supportedLanguages = ['en', 'hi', 'gu'];
+        const lang = supportedLanguages.includes(resolvedLang) ? resolvedLang : 'en';
+
         const requestId = (request as any).requestId || randomUUID();
         const url = request.url || '';
         const versionMatch = url.match(/\/v(\d+)/);
@@ -36,10 +40,14 @@ export class ResponseInterceptor implements NestInterceptor {
         // Default values
         let data = res;
         let customMeta = {};
+        let messageCode = 'COMMON_SUCCESS';
 
         // If the service/controller returns a structured object containing 'success'
         if (res && typeof res === 'object') {
           if ('success' in res) {
+            if ('message' in res && typeof res.message === 'string') {
+              messageCode = res.message;
+            }
             // Separate data if present
             if ('data' in res) {
               data = res.data;
@@ -55,8 +63,13 @@ export class ResponseInterceptor implements NestInterceptor {
           }
         }
 
+        const message = i18n
+          ? i18n.translate(`success.${messageCode}`, { lang, defaultValue: messageCode })
+          : messageCode;
+
         return {
           success: true,
+          message,
           data: data === undefined ? null : data,
           meta: {
             timestamp,

@@ -13,5 +13,11 @@
   "AUTH_MAX_VERIFY_EXCEEDED": "ખૂબ જ નિષ્ફળ પ્રયાસો. લૉગિન 30 મિનિટ માટે લૉક છે.",
   "AUTH_SESSION_COMPROMISED": "સત્ર સાથે ચેડા થયા છે. કૃપા કરીને ફરીથી લોગ ઇન કરો.",
   "AUTH_LOGIN_ACTIVITY_NOT_FOUND": "લૉગિન પ્રવૃત્તિ મળી નથી.",
-  "AUTH_LOGIN_ACTIVITY_FORBIDDEN": "તમારી પાસે આ પ્રવૃત્તિમાં સુધારો કરવાની પરવાનગી નથી."
+  "AUTH_LOGIN_ACTIVITY_FORBIDDEN": "તમારી પાસે આ પ્રવૃત્તિમાં સુધારો કરવાની પરવાનગી નથી.",
+  "INTERNAL_SERVER_ERROR": "આંતરિક સર્વર ભૂલ.",
+  "DATABASE_CONFLICT": "ડેટાબેઝ અનન્ય પ્રતિબંધનું ઉલ્લંઘન થયું.",
+  "RESOURCE_NOT_FOUND": "સંસાધન મળ્યું નથી.",
+  "DATABASE_ERROR": "ડેટાબેઝ કામગીરી નિષ્ફળ ગઈ.",
+  "UNKNOWN_ERROR": "અજ્ઞાત ભૂલ આવી.",
+  "BAD_REQUEST": "અમાન્ય વિનંતી."
 }
