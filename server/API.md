@@ -119,7 +119,8 @@ Response
 
 | Status | Description | JSON Response Example |
 | :--- | :--- | :--- |
-| 200 | OK | `{"success": true, "code": "LOGOUT_SUCCESS", "message": "Logged out successfully.", "data": null}` |
+| 200 | OK (First Hit) | `{"success": true, "code": "LOGOUT_SUCCESS", "message": "Logged out successfully.", "data": null}` |
+| 200 | OK (Subsequent Hits) | `{"success": true, "code": "ALREADY_LOGGED_OUT", "message": "Already logged out.", "data": null}` |
 
 ---
 

@@ -85,11 +85,17 @@ export class LoginActivityService {
     });
 
     if (!activity) {
-      throw new AppException('AUTH_LOGIN_ACTIVITY_NOT_FOUND', HttpStatus.NOT_FOUND);
+      throw new AppException(
+        'AUTH_LOGIN_ACTIVITY_NOT_FOUND',
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     if (activity.userId !== userId) {
-      throw new AppException('AUTH_LOGIN_ACTIVITY_FORBIDDEN', HttpStatus.FORBIDDEN);
+      throw new AppException(
+        'AUTH_LOGIN_ACTIVITY_FORBIDDEN',
+        HttpStatus.FORBIDDEN,
+      );
     }
 
     if (activity.sessionId) {

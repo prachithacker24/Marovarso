@@ -97,8 +97,12 @@ Three PostgreSQL tables manage authentication state via Prisma ORM:
   4. **Response**: Returns `accessToken` and success status to the caller.
 
 ### Flow E: Log Out (`POST /auth/logout`)
-* **Endpoint**: [`auth/logout`](file:///Users/prachithacker/My%20Workspace/Workspace/IPS/MaroVarso/server/src/modules/auth/auth.controller.ts#L122-L141)
-* **Design Pattern**: Since JWTs are stateless and verified cryptographically without database queries per request, the server logs out by responding with success. The client application must discard the local storage cache of Access and Refresh tokens.
+* **Endpoint**: [`auth/logout`](file:///Users/prachithacker/My%20Workspace/Workspace/IPS/MaroVarso/server/src/modules/auth/auth.controller.ts#L172-L208)
+* **Processing Steps**:
+  1. **Authentication Guard**: The endpoint is guarded by `JwtAuthGuard` which verifies the client's short-lived Access Token.
+  2. **Session ID Resolution**: The `JwtStrategy` extracts the unique session ID (`sid` / `sessionId`) from the Access Token payload.
+  3. **Revocation**: The server updates the session record in the database, setting `revokedAt` to the current timestamp. Any subsequent request attempting to authenticate or refresh using tokens linked to this session will be rejected.
+  4. **Response**: Responds with a success message confirming logout. The client application should discard its locally cached Access and Refresh tokens.
 
 ---
 

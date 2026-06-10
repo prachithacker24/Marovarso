@@ -3,5 +3,6 @@
   "AUTH_OTP_RESENT": "OTP resent successfully.",
   "AUTH_SUCCESS": "Authentication successful.",
   "TOKENS_REFRESHED": "Tokens refreshed successfully.",
-  "LOGOUT_SUCCESS": "Logged out successfully."
+  "LOGOUT_SUCCESS": "Logged out successfully.",
+  "ALREADY_LOGGED_OUT": "Already logged out."
 }

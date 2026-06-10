@@ -8,6 +8,7 @@ import {
   HttpCode,
   HttpStatus,
   Query,
+  Req,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -20,6 +21,8 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginActivityService } from './login-activity.service';
+import { AuthService } from './auth.service';
+import type { Request } from 'express';
 
 @ApiTags('Sessions & Login Activity')
 @ApiBearerAuth()
@@ -29,6 +32,7 @@ export class SessionsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly loginActivityService: LoginActivityService,
+    private readonly authService: AuthService,
   ) {}
 
   @Get('sessions')
@@ -73,17 +77,17 @@ export class SessionsController {
   async revokeSession(
     @GetUser('id') userId: string,
     @Param('id') sessionId: string,
+    @Req() req: Request,
   ) {
-    const session = await this.prisma.session.findUnique({
-      where: { id: sessionId },
-    });
-
-    if (session && session.userId === userId) {
-      await this.prisma.session.update({
-        where: { id: sessionId },
-        data: { revokedAt: new Date() },
-      });
-    }
+    const ipAddress =
+      req.ip || (req.headers['x-forwarded-for'] as string) || '';
+    const deviceInfo = req.headers['user-agent'] || '';
+    await this.authService.logout(
+      sessionId,
+      userId,
+      ipAddress,
+      deviceInfo,
+    );
 
     return {
       success: true,
@@ -100,15 +104,11 @@ export class SessionsController {
     status: 200,
     description: 'All sessions revoked successfully',
   })
-  async revokeAllSessions(@GetUser('id') userId: string) {
-    await this.prisma.session.updateMany({
-      where: {
-        userId,
-        revokedAt: null,
-        expiresAt: { gt: new Date() },
-      },
-      data: { revokedAt: new Date() },
-    });
+  async revokeAllSessions(@GetUser('id') userId: string, @Req() req: Request) {
+    const ipAddress =
+      req.ip || (req.headers['x-forwarded-for'] as string) || '';
+    const deviceInfo = req.headers['user-agent'] || '';
+    await this.authService.logoutAll(userId, ipAddress, deviceInfo);
 
     return {
       success: true,

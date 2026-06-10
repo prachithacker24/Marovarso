@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import {
+  INestApplication,
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
@@ -127,7 +131,9 @@ describe('Audit Trail & Security Observability (e2e)', () => {
       const allLogs = await prisma.auditLog.findMany({
         where: { action: 'OTP_SENT' },
       });
-      const logs = allLogs.filter(log => (log.metadata as any)?.phoneNumber === testPhoneNumber);
+      const logs = allLogs.filter(
+        (log) => (log.metadata as any)?.phoneNumber === testPhoneNumber,
+      );
 
       expect(logs.length).toBe(1);
       expect(logs[0].status).toBe('SUCCESS');
@@ -164,7 +170,9 @@ describe('Audit Trail & Security Observability (e2e)', () => {
       const allLogs = await prisma.auditLog.findMany({
         where: { action: 'OTP_RESENT' },
       });
-      const resendLogs = allLogs.filter(log => (log.metadata as any)?.phoneNumber === testPhoneNumber);
+      const resendLogs = allLogs.filter(
+        (log) => (log.metadata as any)?.phoneNumber === testPhoneNumber,
+      );
 
       expect(resendLogs.length).toBe(1);
       expect(resendLogs[0].status).toBe('SUCCESS');
@@ -196,11 +204,15 @@ describe('Audit Trail & Security Observability (e2e)', () => {
       const allLogs = await prisma.auditLog.findMany({
         where: { action: 'OTP_VERIFICATION_FAILED' },
       });
-      const failLogs = allLogs.filter(log => (log.metadata as any)?.phoneNumber === testPhoneNumber);
+      const failLogs = allLogs.filter(
+        (log) => (log.metadata as any)?.phoneNumber === testPhoneNumber,
+      );
 
       expect(failLogs.length).toBe(1);
       expect(failLogs[0].status).toBe('FAILED');
-      expect((failLogs[0].metadata as any).failureReason).toBe('AUTH_INVALID_OTP');
+      expect((failLogs[0].metadata as any).failureReason).toBe(
+        'AUTH_INVALID_OTP',
+      );
     });
 
     it('should log OTP_VERIFIED when verification succeeds', async () => {
@@ -230,11 +242,15 @@ describe('Audit Trail & Security Observability (e2e)', () => {
       const allLogs = await prisma.auditLog.findMany({
         where: { action: 'OTP_VERIFIED' },
       });
-      const verifiedLogs = allLogs.filter(log => (log.metadata as any)?.phoneNumber === testPhoneNumber);
+      const verifiedLogs = allLogs.filter(
+        (log) => (log.metadata as any)?.phoneNumber === testPhoneNumber,
+      );
 
       expect(verifiedLogs.length).toBe(1);
       expect(verifiedLogs[0].status).toBe('SUCCESS');
-      expect((verifiedLogs[0].metadata as any).phoneNumber).toBe(testPhoneNumber);
+      expect((verifiedLogs[0].metadata as any).phoneNumber).toBe(
+        testPhoneNumber,
+      );
     });
   });
 
@@ -265,7 +281,9 @@ describe('Audit Trail & Security Observability (e2e)', () => {
       const allLogs = await prisma.auditLog.findMany({
         where: { action: 'OTP_ABUSE' },
       });
-      const abuseLogs = allLogs.filter(log => (log.metadata as any)?.phoneNumber === testPhoneNumber);
+      const abuseLogs = allLogs.filter(
+        (log) => (log.metadata as any)?.phoneNumber === testPhoneNumber,
+      );
 
       expect(abuseLogs.length).toBe(1);
       expect(abuseLogs[0].severity).toBe('HIGH');
@@ -300,14 +318,16 @@ describe('Audit Trail & Security Observability (e2e)', () => {
           phoneNumber: testPhoneNumber,
           countryCode: testCountryCode,
           running_tests_abuse_block_flag: true, // Optional metadata/context
-        } as any)
+        })
         .expect(400);
 
       // Check if OTP_ABUSE was logged
       const allLogs = await prisma.auditLog.findMany({
         where: { action: 'OTP_ABUSE' },
       });
-      const abuseLogs = allLogs.filter(log => (log.metadata as any)?.phoneNumber === testPhoneNumber);
+      const abuseLogs = allLogs.filter(
+        (log) => (log.metadata as any)?.phoneNumber === testPhoneNumber,
+      );
 
       expect(abuseLogs.length).toBe(1);
       expect(abuseLogs[0].severity).toBe('HIGH');
@@ -315,6 +335,99 @@ describe('Audit Trail & Security Observability (e2e)', () => {
       expect((abuseLogs[0].metadata as any).requestCount).toBe(5);
 
       jest.spyOn(configService, 'get').mockRestore();
+    });
+  });
+
+  describe('Logout & Revocation Double-Hit Audit Logging', () => {
+    it('should log already logged out when logging out twice sequentially', async () => {
+      // 1. Request OTP
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/otp/request')
+        .send({ phoneNumber: testPhoneNumber, countryCode: testCountryCode })
+        .expect(200);
+
+      const otpRecord = await prisma.otp.findFirst({
+        where: { phoneNumber: testPhoneNumber },
+      });
+
+      // 2. Verify OTP to establish a session
+      const verifyRes = await request(app.getHttpServer())
+        .post('/api/v1/auth/otp/verify')
+        .send({
+          phoneNumber: testPhoneNumber,
+          countryCode: testCountryCode,
+          otp: otpRecord?.otp,
+        })
+        .expect(200);
+
+      const accessToken = verifyRes.body.data.accessToken;
+
+      // 3. Logout first time (sequential)
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/logout')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      // 4. Logout second time (sequential)
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/logout')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      // 5. Assert both logs are present with correct descriptions
+      const logs = await prisma.auditLog.findMany({
+        where: { action: 'USER_LOGOUT' },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      expect(logs.length).toBe(2);
+      expect(logs[0].description).toBe('User successfully logged out');
+      expect(logs[1].description).toBe('already logged out');
+    });
+
+    it('should log already logged out when logging out twice concurrently', async () => {
+      // 1. Request OTP
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/otp/request')
+        .send({ phoneNumber: testPhoneNumber, countryCode: testCountryCode })
+        .expect(200);
+
+      const otpRecord = await prisma.otp.findFirst({
+        where: { phoneNumber: testPhoneNumber },
+      });
+
+      // 2. Verify OTP to establish a session
+      const verifyRes = await request(app.getHttpServer())
+        .post('/api/v1/auth/otp/verify')
+        .send({
+          phoneNumber: testPhoneNumber,
+          countryCode: testCountryCode,
+          otp: otpRecord?.otp,
+        })
+        .expect(200);
+
+      const accessToken = verifyRes.body.data.accessToken;
+
+      // 3. Trigger concurrent logout calls using the same access token
+      await Promise.all([
+        request(app.getHttpServer())
+          .post('/api/v1/auth/logout')
+          .set('Authorization', `Bearer ${accessToken}`),
+        request(app.getHttpServer())
+          .post('/api/v1/auth/logout')
+          .set('Authorization', `Bearer ${accessToken}`),
+      ]);
+
+      // 4. Assert both logs are present with correct descriptions
+      const logs = await prisma.auditLog.findMany({
+        where: { action: 'USER_LOGOUT' },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      expect(logs.length).toBe(2);
+      const descriptions = logs.map(l => l.description);
+      expect(descriptions).toContain('User successfully logged out');
+      expect(descriptions).toContain('already logged out');
     });
   });
 });

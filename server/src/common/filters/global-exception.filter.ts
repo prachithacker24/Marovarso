@@ -29,7 +29,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const i18n = I18nContext.current();
     const resolvedLang = i18n ? i18n.lang : 'en';
     const supportedLanguages = ['en', 'hi', 'gu'];
-    const lang = supportedLanguages.includes(resolvedLang) ? resolvedLang : 'en';
+    const lang = supportedLanguages.includes(resolvedLang)
+      ? resolvedLang
+      : 'en';
     const requestId = (request as any).requestId || randomUUID();
 
     if (exception instanceof AppException) {
@@ -40,7 +42,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         : code;
       message = translated;
       errors = exception.details
-        ? (Array.isArray(exception.details) ? exception.details : [exception.details])
+        ? Array.isArray(exception.details)
+          ? exception.details
+          : [exception.details]
         : [translated];
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -156,7 +160,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       code,
       message,
     };
-    if (errors && errors.length > 0 && (code === 'COMMON_VALIDATION_FAILED' || errors[0] !== message)) {
+    if (
+      errors &&
+      errors.length > 0 &&
+      (code === 'COMMON_VALIDATION_FAILED' || errors[0] !== message)
+    ) {
       errorResponse.details = { errors };
     }
 

@@ -70,26 +70,35 @@ export class AuditService {
         entityId,
         roleId,
         roleType,
-        previousState: previousState ? (previousState as Prisma.InputJsonValue) : Prisma.DbNull,
-        currentState: currentState ? (currentState as Prisma.InputJsonValue) : Prisma.DbNull,
+        previousState: previousState
+          ? (previousState as Prisma.InputJsonValue)
+          : Prisma.DbNull,
+        currentState: currentState
+          ? (currentState as Prisma.InputJsonValue)
+          : Prisma.DbNull,
         description,
         severity,
         status,
         requestId: resolvedRequestId,
         ipAddress,
         userAgent,
-        metadata: metadata ? (metadata as Prisma.InputJsonValue) : Prisma.DbNull,
+        metadata: metadata
+          ? (metadata as Prisma.InputJsonValue)
+          : Prisma.DbNull,
       };
 
       const logRecord = await this.auditRepository.create(auditLogData);
-      
+
       this.logger.debug(
         `Audit Log recorded: action=${action}, requestId=${resolvedRequestId}, status=${status}`,
       );
 
       return logRecord;
     } catch (error) {
-      this.logger.error(`Failed to record audit log: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to record audit log: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }

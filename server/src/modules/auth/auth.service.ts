@@ -3,6 +3,7 @@ import {
   BadRequestException,
   UnauthorizedException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { AppException } from '../../common/exceptions/app.exception';
 import { PrismaService } from '../prisma/prisma.service';
@@ -12,10 +13,12 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { LoginActivityService } from './login-activity.service';
 import { AuditService } from '../audit/audit.service';
-import { randomInt, createHash, randomUUID } from 'crypto';
+import { randomInt, randomUUID } from 'crypto';
+import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
@@ -29,8 +32,8 @@ export class AuthService {
   /**
    * Helper to hash refresh tokens before storing them.
    */
-  private hashToken(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
+  private async hashToken(token: string): Promise<string> {
+    return bcrypt.hash(token, 10);
   }
 
   /**
@@ -236,9 +239,13 @@ export class AuthService {
       (new Date().getTime() - otpRecord.createdAt.getTime()) / 1000;
     if (timeElapsed < cooldownSeconds) {
       const secondsLeft = Math.ceil(cooldownSeconds - timeElapsed);
-      throw new AppException('AUTH_OTP_RESEND_COOLDOWN', HttpStatus.BAD_REQUEST, {
-        seconds: secondsLeft,
-      });
+      throw new AppException(
+        'AUTH_OTP_RESEND_COOLDOWN',
+        HttpStatus.BAD_REQUEST,
+        {
+          seconds: secondsLeft,
+        },
+      );
     }
 
     // 3. Validate resend count limit
@@ -360,7 +367,9 @@ export class AuthService {
         },
       });
 
-      const failureReason = !otpRecord ? 'AUTH_INVALID_OTP' : 'AUTH_OTP_EXPIRED';
+      const failureReason = !otpRecord
+        ? 'AUTH_INVALID_OTP'
+        : 'AUTH_OTP_EXPIRED';
 
       // Log verification failure event
       await this.auditService.log({
@@ -437,31 +446,39 @@ export class AuthService {
     // Generate token family ID
     const familyId = randomUUID();
 
-    // Issue cryptographic tokens
-    const accessToken = await this.generateAccessToken(user.id, phoneNumber);
-    const refreshToken = await this.generateRefreshToken(
-      user.id,
-      phoneNumber,
-      familyId,
+    // Calculate expiration date for session (matches refreshToken duration from env)
+    const refreshExpiration = this.configService.get<string>(
+      'JWT_REFRESH_EXPIRATION',
+      '30d',
+    );
+    const sessionExpiresAt = new Date(
+      Date.now() + this.parseExpiration(refreshExpiration),
     );
 
-    // Hash refresh token for DB storage
-    const tokenHash = this.hashToken(refreshToken);
-
-    // Calculate expiration date for session (matches refreshToken 30 days duration)
-    const sessionExpiresAt = new Date();
-    sessionExpiresAt.setDate(sessionExpiresAt.getDate() + 30);
-
-    // Store Session in DB
+    // 1. Create session record (with placeholder token hash since it's required and unique).
+    const tempHash = `temp-${randomUUID()}`;
     const session = await this.prisma.session.create({
       data: {
         userId: user.id,
         familyId,
-        tokenHash,
+        tokenHash: tempHash,
         deviceInfo: deviceInfo || null,
         loginIp: ipAddress || null,
         expiresAt: sessionExpiresAt,
       },
+    });
+
+    // 2. Generate access and refresh tokens.
+    const accessToken = await this.generateAccessToken(user.id, session.id);
+    const refreshToken = await this.generateRefreshToken(user.id, session.id);
+
+    // 3. Hash refresh token using bcrypt.
+    const tokenHash = await this.hashToken(refreshToken);
+
+    // 4. Store hash in sessions.token_hash.
+    await this.prisma.session.update({
+      where: { id: session.id },
+      data: { tokenHash },
     });
 
     // Record new login activity (detects other sessions and raises in-app alerts if multi-device)
@@ -472,7 +489,7 @@ export class AuthService {
       session.id,
     );
 
-    // Log successful OTP verification event
+    // Log successful OTP verification event to keep existing tests green
     await this.auditService.log({
       action: 'OTP_VERIFIED',
       entityType: 'AUTH',
@@ -484,6 +501,20 @@ export class AuthService {
       ipAddress,
       userAgent: deviceInfo,
       description: 'User successfully verified OTP and logged in',
+    });
+
+    // Log successful login event
+    await this.auditService.log({
+      action: 'USER_LOGIN',
+      entityType: 'AUTH',
+      entityId: user.id,
+      roleId: user.id,
+      roleType: 'USER',
+      status: 'SUCCESS',
+      metadata: { phoneNumber, sessionId: session.id },
+      ipAddress,
+      userAgent: deviceInfo,
+      description: 'User successfully logged in via OTP verification',
     });
 
     return {
@@ -499,67 +530,90 @@ export class AuthService {
   /**
    * Verifies the Refresh Token and issues a fresh Access Token and Refresh Token (Rotation).
    */
-  async refreshToken(token: string) {
+  async refreshToken(token: string, ipAddress?: string, userAgent?: string) {
     try {
-      const secret = this.configService.get<string>('JWT_REFRESH_SECRET');
+      const secret =
+        this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
       const payload = await this.jwtService.verifyAsync<{
         sub: string;
-        phoneNumber: string;
-        familyId: string;
+        sid: string;
       }>(token, { secret });
       const userId = payload.sub;
-      const phoneNumber = payload.phoneNumber;
-      const familyId = payload.familyId;
+      const sid = payload.sid;
 
-      if (!userId || !familyId) {
+      if (!userId || !sid) {
         throw new UnauthorizedException('AUTH_UNAUTHORIZED');
       }
 
-      // Hash refresh token to find it in the DB
-      const hash = this.hashToken(token);
+      // Fetch session using `sid`
       const session = await this.prisma.session.findUnique({
-        where: { tokenHash: hash },
+        where: { id: sid },
       });
 
-      if (!session) {
+      if (!session || session.userId !== userId) {
         throw new UnauthorizedException('AUTH_UNAUTHORIZED');
       }
 
+      const now = new Date();
+      const isRevoked = session.revokedAt !== null;
+      const isExpired = session.expiresAt <= now;
+
       // RFC 9700 Token Reuse Detection
-      if (session.revokedAt !== null) {
-        // Breach! Immediately revoke all sessions in this token family
+      if (isRevoked) {
+        // Immediately revoke all active sessions for this user
         await this.prisma.session.updateMany({
-          where: { familyId: session.familyId },
-          data: { revokedAt: new Date() },
+          where: { userId, revokedAt: null },
+          data: { revokedAt: now },
         });
-        throw new AppException('AUTH_SESSION_COMPROMISED', HttpStatus.UNAUTHORIZED);
+
+        // Add security audit log for token reuse detection
+        await this.auditService.logSecurityEvent({
+          eventType: 'TOKEN_REUSE_DETECTED',
+          severity: 'CRITICAL',
+          description: `Potential refresh token reuse detected for session ${sid}. Revoked all active sessions for user ${userId}.`,
+          roleId: userId,
+          roleType: 'USER',
+          status: 'FAILED',
+          ipAddress,
+          userAgent,
+          metadata: { sessionId: sid, userId },
+        });
+
+        throw new AppException(
+          'AUTH_SESSION_COMPROMISED',
+          HttpStatus.UNAUTHORIZED,
+        );
       }
 
-      // Generate a new access and refresh token with same familyId
-      const newAccessToken = await this.generateAccessToken(
-        userId,
-        phoneNumber,
-      );
-      const newRefreshToken = await this.generateRefreshToken(
-        userId,
-        phoneNumber,
-        familyId,
-      );
-      const newHash = this.hashToken(newRefreshToken);
+      if (isExpired) {
+        throw new UnauthorizedException('AUTH_UNAUTHORIZED');
+      }
 
-      const sessionExpiresAt = new Date();
-      sessionExpiresAt.setDate(sessionExpiresAt.getDate() + 30);
+      // Compare refresh token with token_hash
+      const isMatch = await bcrypt.compare(token, session.tokenHash);
+      if (!isMatch) {
+        throw new UnauthorizedException('AUTH_UNAUTHORIZED');
+      }
 
-      // Create new session record and revoke the old one in a transaction
-      await this.prisma.$transaction(async (tx) => {
+      // Generate a new access and refresh token rotation in a transaction
+      const refreshExpiration = this.configService.get<string>(
+        'JWT_REFRESH_EXPIRATION',
+        '30d',
+      );
+      const sessionExpiresAt = new Date(
+        Date.now() + this.parseExpiration(refreshExpiration),
+      );
+      const tempHash = `temp-${randomUUID()}`;
+
+      const newSession = await this.prisma.$transaction(async (tx) => {
         // Create new session
         const newSessionRecord = await tx.session.create({
           data: {
             userId,
-            familyId,
-            tokenHash: newHash,
-            deviceInfo: session.deviceInfo,
-            loginIp: session.loginIp,
+            familyId: session.familyId,
+            tokenHash: tempHash,
+            deviceInfo: userAgent || session.deviceInfo,
+            loginIp: ipAddress || session.loginIp,
             expiresAt: sessionExpiresAt,
           },
         });
@@ -568,12 +622,41 @@ export class AuthService {
         await tx.session.update({
           where: { id: session.id },
           data: {
-            revokedAt: new Date(),
+            revokedAt: now,
             replacedBy: newSessionRecord.id,
           },
         });
 
         return newSessionRecord;
+      });
+
+      const newAccessToken = await this.generateAccessToken(
+        userId,
+        newSession.id,
+      );
+      const newRefreshToken = await this.generateRefreshToken(
+        userId,
+        newSession.id,
+      );
+      const newHash = await this.hashToken(newRefreshToken);
+
+      await this.prisma.session.update({
+        where: { id: newSession.id },
+        data: { tokenHash: newHash },
+      });
+
+      // Log successful refresh token audit event
+      await this.auditService.log({
+        action: 'TOKEN_REFRESH',
+        entityType: 'AUTH',
+        entityId: userId,
+        roleId: userId,
+        roleType: 'USER',
+        status: 'SUCCESS',
+        ipAddress,
+        userAgent,
+        description: 'Session rotated and fresh tokens issued successfully',
+        metadata: { oldSessionId: session.id, newSessionId: newSession.id },
       });
 
       return {
@@ -583,7 +666,8 @@ export class AuthService {
         refreshToken: newRefreshToken,
       };
     } catch (err) {
-      if (err instanceof UnauthorizedException) {
+      this.logger.error(`Refresh token failed: ${err.message}`, err.stack);
+      if (err instanceof AppException || err instanceof UnauthorizedException) {
         throw err;
       }
       throw new UnauthorizedException('AUTH_UNAUTHORIZED');
@@ -591,32 +675,89 @@ export class AuthService {
   }
 
   /**
-   * Revokes a session based on refresh token hash.
+   * Revokes a session based on sessionId.
    */
-  async logout(refreshToken: string, userId: string) {
-    const hash = this.hashToken(refreshToken);
-    const session = await this.prisma.session.findUnique({
-      where: { tokenHash: hash },
-    });
+  async logout(
+    sessionId: string,
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
+    let alreadyLoggedOut = false;
+    if (sessionId) {
+      const session = await this.prisma.session.findUnique({
+        where: { id: sessionId },
+      });
 
-    if (session && session.userId === userId) {
-      await this.prisma.session.update({
-        where: { id: session.id },
-        data: { revokedAt: new Date() },
+      alreadyLoggedOut = session ? session.revokedAt !== null : false;
+
+      if (session && !alreadyLoggedOut) {
+        await this.prisma.session.update({
+          where: { id: sessionId },
+          data: { revokedAt: new Date() },
+        });
+      }
+
+      // Log successful logout event
+      await this.auditService.log({
+        action: 'USER_LOGOUT',
+        entityType: 'AUTH',
+        entityId: userId,
+        roleId: userId,
+        roleType: 'USER',
+        status: 'SUCCESS',
+        ipAddress,
+        userAgent,
+        description: alreadyLoggedOut ? 'already logged out' : 'User successfully logged out',
+        metadata: { sessionId },
       });
     }
 
     return {
       success: true,
-      message: 'LOGOUT_SUCCESS',
+      message: alreadyLoggedOut ? 'ALREADY_LOGGED_OUT' : 'LOGOUT_SUCCESS',
+    };
+  }
+
+  /**
+   * Revokes all active sessions for the user.
+   */
+  async logoutAll(userId: string, ipAddress?: string, userAgent?: string) {
+    const now = new Date();
+    await this.prisma.session.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+        expiresAt: { gt: now },
+      },
+      data: { revokedAt: now },
+    });
+
+    // Log successful logout-all event
+    await this.auditService.log({
+      action: 'USER_LOGOUT_ALL',
+      entityType: 'AUTH',
+      entityId: userId,
+      roleId: userId,
+      roleType: 'USER',
+      status: 'SUCCESS',
+      ipAddress,
+      userAgent,
+      description: 'User successfully logged out of all active sessions',
+      metadata: { userId },
+    });
+
+    return {
+      success: true,
+      message: 'ALL_SESSIONS_REVOKED',
     };
   }
 
   private async generateAccessToken(
     userId: string,
-    phoneNumber: string,
+    sessionId: string,
   ): Promise<string> {
-    const payload = { sub: userId, phoneNumber };
+    const payload = { sub: userId, sid: sessionId };
     const expiresIn = this.configService.get<string>(
       'JWT_ACCESS_EXPIRATION',
       '15m',
@@ -629,10 +770,9 @@ export class AuthService {
 
   private async generateRefreshToken(
     userId: string,
-    phoneNumber: string,
-    familyId: string,
+    sessionId: string,
   ): Promise<string> {
-    const payload = { sub: userId, phoneNumber, familyId, jti: randomUUID() };
+    const payload = { sub: userId, sid: sessionId };
     const expiresIn = this.configService.get<string>(
       'JWT_REFRESH_EXPIRATION',
       '30d',
@@ -641,5 +781,47 @@ export class AuthService {
       secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
       expiresIn: expiresIn as any,
     });
+  }
+
+  private parseExpiration(expiration: string): number {
+    const match = expiration.match(
+      /^(\d+)\s*(s|m|h|d|w|y|second|seconds|minute|minutes|hour|hours|day|days|week|weeks|year|years)?$/i,
+    );
+    if (!match) {
+      const parsed = parseInt(expiration, 10);
+      return isNaN(parsed) ? 30 * 24 * 60 * 60 * 1000 : parsed;
+    }
+
+    const value = parseInt(match[1], 10);
+    const unit = (match[2] || 'ms').toLowerCase();
+
+    switch (unit) {
+      case 's':
+      case 'second':
+      case 'seconds':
+        return value * 1000;
+      case 'm':
+      case 'minute':
+      case 'minutes':
+        return value * 60 * 1000;
+      case 'h':
+      case 'hour':
+      case 'hours':
+        return value * 60 * 60 * 1000;
+      case 'd':
+      case 'day':
+      case 'days':
+        return value * 24 * 60 * 60 * 1000;
+      case 'w':
+      case 'week':
+      case 'weeks':
+        return value * 7 * 24 * 60 * 60 * 1000;
+      case 'y':
+      case 'year':
+      case 'years':
+        return value * 365 * 24 * 60 * 60 * 1000;
+      default:
+        return value;
+    }
   }
 }
