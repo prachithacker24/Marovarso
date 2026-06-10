@@ -156,8 +156,18 @@ export class AuthController {
     },
   })
   @ApiResponse({ status: 401, description: 'Invalid or expired Refresh Token' })
-  async refreshToken(@Body() refreshTokenDto: RefreshTokenDto) {
-    return this.authService.refreshToken(refreshTokenDto.refreshToken);
+  async refreshToken(
+    @Body() refreshTokenDto: RefreshTokenDto,
+    @Req() req: Request,
+  ) {
+    const ipAddress =
+      req.ip || (req.headers['x-forwarded-for'] as string) || '';
+    const deviceInfo = req.headers['user-agent'] || '';
+    return this.authService.refreshToken(
+      refreshTokenDto.refreshToken,
+      ipAddress,
+      deviceInfo,
+    );
   }
 
   @Post('logout')
@@ -165,7 +175,8 @@ export class AuthController {
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Log out the authenticated user by invalidating the refresh token',
+    summary:
+      'Log out the authenticated user by invalidating the current session',
   })
   @ApiResponse({
     status: 200,
@@ -182,10 +193,14 @@ export class AuthController {
     },
   })
   async logout(
-    @Body() refreshTokenDto: RefreshTokenDto,
+    @GetUser('sessionId') sessionId: string,
     @GetUser('id') userId: string,
+    @Req() req: Request,
   ) {
-    return this.authService.logout(refreshTokenDto.refreshToken, userId);
+    const ipAddress =
+      req.ip || (req.headers['x-forwarded-for'] as string) || '';
+    const deviceInfo = req.headers['user-agent'] || '';
+    return this.authService.logout(sessionId, userId, ipAddress, deviceInfo);
   }
 
   @Get('me')

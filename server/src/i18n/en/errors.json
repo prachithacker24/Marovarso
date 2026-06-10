@@ -13,5 +13,6 @@
   "AUTH_MAX_VERIFY_EXCEEDED": "Too many failed attempts. Login is locked for 30 minutes.",
   "AUTH_SESSION_COMPROMISED": "Session compromised. Please log in again.",
   "AUTH_LOGIN_ACTIVITY_NOT_FOUND": "Login activity not found.",
-  "AUTH_LOGIN_ACTIVITY_FORBIDDEN": "You do not have permission to modify this activity."
+  "AUTH_LOGIN_ACTIVITY_FORBIDDEN": "You do not have permission to modify this activity.",
+  "AUTH_TOKEN_EXPIRED": "Token has expired."
 }

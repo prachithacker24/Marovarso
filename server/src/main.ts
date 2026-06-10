@@ -83,10 +83,10 @@ async function bootstrap() {
         enum: ['en', 'hi', 'gu'],
         default: 'en',
       },
-      description: 'Preferred language for localized API responses and error messages',
+      description:
+        'Preferred language for localized API responses and error messages',
     })
     .build();
-
 
   if (!isProduction) {
     const document = SwaggerModule.createDocument(app, swaggerConfig);

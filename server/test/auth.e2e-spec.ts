@@ -198,7 +198,9 @@ describe('AuthController (e2e)', () => {
         })
         .expect(400);
 
-      expect(response.body.error.message).toContain('No active OTP request found');
+      expect(response.body.error.message).toContain(
+        'No active OTP request found',
+      );
     });
 
     it('should enforce the cooldown period between resend attempts', async () => {
@@ -555,7 +557,9 @@ describe('AuthController (e2e)', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
 
-      expect(profileRes.body.data.credential.mobileNumber).toBe(testPhoneNumber);
+      expect(profileRes.body.data.credential.mobileNumber).toBe(
+        testPhoneNumber,
+      );
       expect(profileRes.body.data.credential.countryCode).toBe(testCountryCode);
     });
 
@@ -578,6 +582,39 @@ describe('AuthController (e2e)', () => {
       expect(refreshRes.body.data.accessToken).toBeDefined();
     });
 
+    it('POST /api/v1/auth/token/refresh - should refresh access token even if expired access token is in Authorization header', async () => {
+      const jwtService = app.get(require('@nestjs/jwt').JwtService);
+      const expiredAccessToken = await jwtService.signAsync(
+        { sub: 'test-user-id', sid: 'test-session-id' },
+        {
+          secret: configService.get('JWT_ACCESS_SECRET'),
+          expiresIn: '0s',
+        },
+      );
+
+      // Wait 1s to ensure expiration
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      const refreshRes = await request(app.getHttpServer())
+        .post('/api/v1/auth/token/refresh')
+        .set('Authorization', `Bearer ${expiredAccessToken}`)
+        .send({ refreshToken })
+        .expect(200);
+
+      expect(refreshRes.body.success).toBe(true);
+      expect(refreshRes.body.data.accessToken).toBeDefined();
+    });
+
+    it('POST /api/v1/auth/token/refresh - check what happens when refresh token is in Authorization header and body is empty', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/auth/token/refresh')
+        .set('Authorization', `Bearer ${refreshToken}`)
+        .send({})
+        .expect(400);
+
+      console.log('Response body:', JSON.stringify(response.body));
+    });
+
     it('POST /api/v1/auth/token/refresh - should reject invalid refresh token', async () => {
       await request(app.getHttpServer())
         .post('/api/v1/auth/token/refresh')
@@ -585,15 +622,28 @@ describe('AuthController (e2e)', () => {
         .expect(401);
     });
 
-    it('POST /api/v1/auth/logout - should perform logout successfully', async () => {
-      const logoutRes = await request(app.getHttpServer())
+    it('POST /api/v1/auth/logout - should perform logout successfully and say already logged out on second hit', async () => {
+      // First logout hit
+      const logoutRes1 = await request(app.getHttpServer())
         .post('/api/v1/auth/logout')
         .set('Authorization', `Bearer ${accessToken}`)
-        .send({ refreshToken })
         .expect(200);
 
-      expect(logoutRes.body.success).toBe(true);
-      expect(logoutRes.body.data).toBeNull();
+      expect(logoutRes1.body.success).toBe(true);
+      expect(logoutRes1.body.code).toBe('LOGOUT_SUCCESS');
+      expect(logoutRes1.body.message).toBe('Logged out successfully.');
+      expect(logoutRes1.body.data).toBeNull();
+
+      // Second logout hit (sequential)
+      const logoutRes2 = await request(app.getHttpServer())
+        .post('/api/v1/auth/logout')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      expect(logoutRes2.body.success).toBe(true);
+      expect(logoutRes2.body.code).toBe('ALREADY_LOGGED_OUT');
+      expect(logoutRes2.body.message).toBe('Already logged out.');
+      expect(logoutRes2.body.data).toBeNull();
     });
   });
 });
