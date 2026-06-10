@@ -2,7 +2,9 @@ import {
   Injectable,
   BadRequestException,
   UnauthorizedException,
+  HttpStatus,
 } from '@nestjs/common';
+import { AppException } from '../../common/exceptions/app.exception';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { SmsService } from './sms.service';
@@ -46,9 +48,9 @@ export class AuthService {
           (credential.lockedUntil.getTime() - now.getTime()) / 1000,
         );
         const minutesLeft = Math.ceil(secondsLeft / 60);
-        throw new BadRequestException(
-          `Login is temporarily locked due to too many attempts. Please try again after ${minutesLeft} minute(s).`,
-        );
+        throw new AppException('AUTH_LOCKOUT', HttpStatus.BAD_REQUEST, {
+          minutes: minutesLeft,
+        });
       } else if (credential.lockedUntil && credential.lockedUntil <= now) {
         // Lockout expired, reset status
         await this.prisma.userCredential.update({
@@ -107,9 +109,7 @@ export class AuthService {
         requestId,
       });
 
-      throw new BadRequestException(
-        'Excessive OTP requests. Please try again after 10 minutes.',
-      );
+      throw new AppException('AUTH_EXCESSIVE_REQUESTS');
     }
 
     // Find the latest active (unused and unexpired) OTP record
@@ -134,9 +134,9 @@ export class AuthService {
         (new Date().getTime() - activeOtp.createdAt.getTime()) / 1000;
       if (timeElapsed < cooldownSeconds) {
         const secondsLeft = Math.ceil(cooldownSeconds - timeElapsed);
-        throw new BadRequestException(
-          `Please wait ${secondsLeft} second(s) before requesting a new OTP.`,
-        );
+        throw new AppException('AUTH_OTP_COOLDOWN', HttpStatus.BAD_REQUEST, {
+          seconds: secondsLeft,
+        });
       }
 
       // After cooldown, invalidate the previous active OTP code
@@ -225,9 +225,7 @@ export class AuthService {
     });
 
     if (!otpRecord) {
-      throw new BadRequestException(
-        'No active OTP request found or it has expired. Please request a new OTP.',
-      );
+      throw new AppException('AUTH_NO_ACTIVE_OTP');
     }
 
     // 2. Enforce cooldown (default: 30 seconds)
@@ -238,9 +236,9 @@ export class AuthService {
       (new Date().getTime() - otpRecord.createdAt.getTime()) / 1000;
     if (timeElapsed < cooldownSeconds) {
       const secondsLeft = Math.ceil(cooldownSeconds - timeElapsed);
-      throw new BadRequestException(
-        `Please wait ${secondsLeft} second(s) before resending the OTP.`,
-      );
+      throw new AppException('AUTH_OTP_RESEND_COOLDOWN', HttpStatus.BAD_REQUEST, {
+        seconds: secondsLeft,
+      });
     }
 
     // 3. Validate resend count limit
@@ -267,9 +265,7 @@ export class AuthService {
         metadata: { phoneNumber, resendCount: otpRecord.resendCount },
       });
 
-      throw new BadRequestException(
-        'Maximum resend attempts (3) exceeded. Login is locked for 30 minutes.',
-      );
+      throw new AppException('AUTH_MAX_RESEND_EXCEEDED');
     }
 
     // 4. Invalidate the previous OTP code
@@ -405,15 +401,13 @@ export class AuthService {
           metadata: { phoneNumber, attemptCount: updatedCred.otpAttemptCount },
         });
 
-        throw new BadRequestException(
-          'Too many failed attempts. Login is locked for 30 minutes.',
-        );
+        throw new AppException('AUTH_MAX_VERIFY_EXCEEDED');
       }
 
       if (!otpRecord) {
-        throw new BadRequestException('AUTH_INVALID_OTP');
+        throw new AppException('AUTH_INVALID_OTP');
       } else {
-        throw new BadRequestException('AUTH_OTP_EXPIRED');
+        throw new AppException('AUTH_OTP_EXPIRED');
       }
     }
 
@@ -538,9 +532,7 @@ export class AuthService {
           where: { familyId: session.familyId },
           data: { revokedAt: new Date() },
         });
-        throw new UnauthorizedException(
-          'Session compromised. Please log in again.',
-        );
+        throw new AppException('AUTH_SESSION_COMPROMISED', HttpStatus.UNAUTHORIZED);
       }
 
       // Generate a new access and refresh token with same familyId

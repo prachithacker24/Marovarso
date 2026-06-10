@@ -3,5 +3,15 @@
   "AUTH_OTP_EXPIRED": "OTP has expired.",
   "AUTH_UNAUTHORIZED": "You are not authorized.",
   "COMMON_VALIDATION_FAILED": "Validation failed.",
-  "MEMBER_NOT_FOUND": "Family member not found."
+  "MEMBER_NOT_FOUND": "Family member not found.",
+  "AUTH_LOCKOUT": "Login is temporarily locked due to too many attempts. Please try again after {minutes} minute(s).",
+  "AUTH_EXCESSIVE_REQUESTS": "Excessive OTP requests. Please try again after 10 minutes.",
+  "AUTH_OTP_COOLDOWN": "Please wait {seconds} second(s) before requesting a new OTP.",
+  "AUTH_NO_ACTIVE_OTP": "No active OTP request found or it has expired. Please request a new OTP.",
+  "AUTH_OTP_RESEND_COOLDOWN": "Please wait {seconds} second(s) before resending the OTP.",
+  "AUTH_MAX_RESEND_EXCEEDED": "Maximum resend attempts (3) exceeded. Login is locked for 30 minutes.",
+  "AUTH_MAX_VERIFY_EXCEEDED": "Too many failed attempts. Login is locked for 30 minutes.",
+  "AUTH_SESSION_COMPROMISED": "Session compromised. Please log in again.",
+  "AUTH_LOGIN_ACTIVITY_NOT_FOUND": "Login activity not found.",
+  "AUTH_LOGIN_ACTIVITY_FORBIDDEN": "You do not have permission to modify this activity."
 }

@@ -7,6 +7,7 @@ import {
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { I18nContext } from 'nestjs-i18n';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class ResponseInterceptor implements NestInterceptor {
@@ -26,61 +27,43 @@ export class ResponseInterceptor implements NestInterceptor {
     return next.handle().pipe(
       map((res) => {
         const i18n = I18nContext.current();
+        const requestId = (request as any).requestId || randomUUID();
+        const url = request.url || '';
+        const versionMatch = url.match(/\/v(\d+)/);
+        const version = versionMatch ? `v${versionMatch[1]}` : 'v1';
+        const timestamp = new Date().toISOString();
 
         // Default values
-        let success = true;
-        let code = 'SUCCESS';
-        let message = 'Operation successful';
         let data = res;
+        let customMeta = {};
 
         // If the service/controller returns a structured object containing 'success'
-        if (res && typeof res === 'object' && 'success' in res) {
-          success = res.success;
-          const rawMessage = res.message || 'Operation successful';
-
-          if (
-            typeof rawMessage === 'string' &&
-            /^[A-Z0-9_]+$/.test(rawMessage)
-          ) {
-            code = rawMessage;
-            message = i18n
-              ? i18n.translate(`success.${code}`, { defaultValue: code })
-              : code;
-          } else {
-            message = rawMessage;
-          }
-
-          // Separate data if present
-          if ('data' in res) {
-            data = res.data;
-          } else {
-            // Remove success and message from the data payload
-            const { success: _, message: __, ...rest } = res;
-            data = Object.keys(rest).length > 0 ? rest : null;
-          }
-        } else {
-          // If the return is just the raw data payload itself
-          if (res && typeof res === 'object' && 'message' in res) {
-            const rawMessage = res.message;
-            if (
-              typeof rawMessage === 'string' &&
-              /^[A-Z0-9_]+$/.test(rawMessage)
-            ) {
-              code = rawMessage;
-              message = i18n
-                ? i18n.translate(`success.${code}`, { defaultValue: code })
-                : code;
-              const { message: _, ...rest } = res;
-              data = rest;
+        if (res && typeof res === 'object') {
+          if ('success' in res) {
+            // Separate data if present
+            if ('data' in res) {
+              data = res.data;
+            } else {
+              // Remove success and message from the data payload
+              const { success: _, message: __, code: ___, meta: ____, ...rest } = res;
+              data = Object.keys(rest).length > 0 ? rest : null;
             }
+          }
+
+          if ('meta' in res && res.meta && typeof res.meta === 'object') {
+            customMeta = res.meta;
           }
         }
 
         return {
-          success,
-          code,
-          message,
+          success: true,
           data: data === undefined ? null : data,
+          meta: {
+            timestamp,
+            requestId,
+            version,
+            ...customMeta,
+          },
         };
       }),
     );

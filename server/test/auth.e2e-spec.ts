@@ -79,12 +79,11 @@ describe('AuthController (e2e)', () => {
         })
         .expect(200);
 
-      expect(response.body).toEqual({
-        success: true,
-        code: 'AUTH_OTP_SENT',
-        message: 'OTP sent successfully.',
-        data: null,
-      });
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toBeNull();
+      expect(response.body.meta).toBeDefined();
+      expect(response.body.meta.requestId).toBeDefined();
+      expect(response.body.meta.version).toBe('v1');
 
       const otpRecord = await prisma.otp.findFirst({
         where: { phoneNumber: testPhoneNumber },
@@ -131,7 +130,7 @@ describe('AuthController (e2e)', () => {
         })
         .expect(400);
 
-      expect(res.body.message).toContain('before requesting a new OTP');
+      expect(res.body.error.message).toContain('before requesting a new OTP');
 
       // Cleanup mock
       jest.spyOn(configService, 'get').mockRestore();
@@ -199,7 +198,7 @@ describe('AuthController (e2e)', () => {
         })
         .expect(400);
 
-      expect(response.body.message).toContain('No active OTP request found');
+      expect(response.body.error.message).toContain('No active OTP request found');
     });
 
     it('should enforce the cooldown period between resend attempts', async () => {
@@ -229,7 +228,7 @@ describe('AuthController (e2e)', () => {
         })
         .expect(400);
 
-      expect(res.body.message).toContain('before resending the OTP');
+      expect(res.body.error.message).toContain('before resending the OTP');
 
       // Cleanup mock
       jest.spyOn(configService, 'get').mockRestore();
@@ -268,14 +267,13 @@ describe('AuthController (e2e)', () => {
         })
         .expect(200);
 
-      expect(res.body).toEqual({
-        success: true,
-        code: 'AUTH_OTP_RESENT',
-        message: 'OTP resent successfully.',
-        data: {
-          resendAttempt: 1,
-        },
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toEqual({
+        resendAttempt: 1,
       });
+      expect(res.body.meta).toBeDefined();
+      expect(res.body.meta.requestId).toBeDefined();
+      expect(res.body.meta.version).toBe('v1');
 
       // Validate OTP #0 was invalidated
       const otp0Checked = await prisma.otp.findUnique({
@@ -341,7 +339,7 @@ describe('AuthController (e2e)', () => {
         })
         .expect(400);
 
-      expect(res.body.message).toContain(
+      expect(res.body.error.message).toContain(
         'Maximum resend attempts (3) exceeded',
       );
 
@@ -456,7 +454,7 @@ describe('AuthController (e2e)', () => {
         .send({ phoneNumber: testPhoneNumber, countryCode: testCountryCode })
         .expect(400);
 
-      expect(res.body.message).toContain(
+      expect(res.body.error.message).toContain(
         'Maximum resend attempts (3) exceeded. Login is locked for 30 minutes.',
       );
 
@@ -465,7 +463,7 @@ describe('AuthController (e2e)', () => {
         .post('/api/v1/auth/otp/request')
         .send({ phoneNumber: testPhoneNumber, countryCode: testCountryCode })
         .expect(400);
-      expect(sendRes.body.message).toContain('temporarily locked');
+      expect(sendRes.body.error.message).toContain('temporarily locked');
 
       // 7. Confirm verify-otp is now blocked due to lockout
       const verifyRes = await request(app.getHttpServer())
@@ -476,7 +474,7 @@ describe('AuthController (e2e)', () => {
           otp: '123456',
         })
         .expect(400);
-      expect(verifyRes.body.message).toContain('temporarily locked');
+      expect(verifyRes.body.error.message).toContain('temporarily locked');
 
       jest.spyOn(configService, 'get').mockRestore();
     });
@@ -498,7 +496,7 @@ describe('AuthController (e2e)', () => {
             otp: '000000', // incorrect otp
           })
           .expect(400);
-        expect(verifyRes.body.message).toContain('Invalid OTP');
+        expect(verifyRes.body.error.message).toContain('Invalid OTP');
       }
 
       // 3. 5th incorrect attempt should lock login for 30 minutes
@@ -510,7 +508,7 @@ describe('AuthController (e2e)', () => {
           otp: '000000', // incorrect otp
         })
         .expect(400);
-      expect(lockRes.body.message).toContain(
+      expect(lockRes.body.error.message).toContain(
         'Too many failed attempts. Login is locked for 30 minutes.',
       );
 
@@ -519,7 +517,7 @@ describe('AuthController (e2e)', () => {
         .post('/api/v1/auth/otp/request')
         .send({ phoneNumber: testPhoneNumber, countryCode: testCountryCode })
         .expect(400);
-      expect(sendRes.body.message).toContain('temporarily locked');
+      expect(sendRes.body.error.message).toContain('temporarily locked');
     });
   });
 
@@ -595,7 +593,7 @@ describe('AuthController (e2e)', () => {
         .expect(200);
 
       expect(logoutRes.body.success).toBe(true);
-      expect(logoutRes.body.message).toContain('Logged out successfully.');
+      expect(logoutRes.body.data).toBeNull();
     });
   });
 });
