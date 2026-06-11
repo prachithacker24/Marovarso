@@ -115,7 +115,7 @@ The application integrates standard NestJS frameworks, decorators, and strategie
 * **Configuration**:
   * Extracts tokens from incoming requests via `ExtractJwt.fromAuthHeaderAsBearerToken()` (expects header `Authorization: Bearer <JWT>`).
   * Cryptographically checks signatures using `JWT_ACCESS_SECRET`.
-  * Rejects request instantly if the token lifetime is expired (`ignoreExpiration: false`)....
+  * Rejects request instantly if the token lifetime is expired (`ignoreExpiration: false`).
 * **`validate()` Handler**:
   * Receives decrypted payload `{ sub: string, phoneNumber: string }`.
   * Fetches the user profile via `UsersService.findById(sub)`.
