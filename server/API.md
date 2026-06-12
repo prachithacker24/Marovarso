@@ -102,7 +102,7 @@ Response
 
 | Status | Description | JSON Response Example |
 | :--- | :--- | :--- |
-| 200 | OK | `{"success": true, "code": "TOKENS_REFRESHED", "message": "Tokens refreshed successfully.", "data": {"accessToken": "eyJhbGci..."}}` |
+| 200 | OK | `{"success": true, "code": "TOKENS_REFRESHED", "message": "Tokens refreshed successfully.", "data": {"accessToken": "eyJhbGci...", "refreshToken": "eyJhbGci..."}}` |
 | 401 | Unauthorized | `{"success": false, "code": "AUTH_UNAUTHORIZED", "message": "You are not authorized.", "errors": ["You are not authorized."]}` |
 
 ---
@@ -154,3 +154,92 @@ Response
 | Status | Description | JSON Response Example |
 | :--- | :--- | :--- |
 | 200 | OK | `{"status": "ok"}` |
+
+---
+
+### 8. Sessions: List Active Sessions
+Retrieve all currently active sessions for the user. Requires Bearer Authentication.
+Request
+
+| Method | Endpoint |
+| :--- | :--- |
+| GET | /api/v1/auth/sessions |
+
+Response
+
+| Status | Description | JSON Response Example |
+| :--- | :--- | :--- |
+| 200 | OK | `{"success": true, "code": "SESSIONS_RETRIEVED", "message": "Active sessions retrieved successfully.", "data": [{"id": "d08fa671-87ab-...", "deviceInfo": "Mozilla/5.0...", "loginIp": "127.0.0.1", "loginAt": "2026-05-30T15:23:00.000Z", "expiresAt": "2026-06-30T15:23:00.000Z"}]}` |
+| 401 | Unauthorized | `{"success": false, "code": "AUTH_UNAUTHORIZED", "message": "You are not authorized.", "errors": ["You are not authorized."]}` |
+
+---
+
+### 9. Sessions: Revoke Specific Session
+Terminate a specific active session by its ID. Requires Bearer Authentication.
+Request
+
+| Method | Endpoint |
+| :--- | :--- |
+| DELETE | /api/v1/auth/sessions/:id |
+
+Response
+
+| Status | Description | JSON Response Example |
+| :--- | :--- | :--- |
+| 200 | OK | `{"success": true, "code": "SESSION_REVOKED", "message": "Session revoked successfully.", "data": null}` |
+| 401 | Unauthorized | `{"success": false, "code": "AUTH_UNAUTHORIZED", "message": "You are not authorized.", "errors": ["You are not authorized."]}` |
+
+---
+
+### 10. Sessions: Revoke All Sessions
+Log out of all active sessions across all devices. Requires Bearer Authentication.
+Request
+
+| Method | Endpoint |
+| :--- | :--- |
+| DELETE | /api/v1/auth/sessions |
+
+Response
+
+| Status | Description | JSON Response Example |
+| :--- | :--- | :--- |
+| 200 | OK | `{"success": true, "code": "ALL_SESSIONS_REVOKED", "message": "All sessions revoked successfully.", "data": null}` |
+| 401 | Unauthorized | `{"success": false, "code": "AUTH_UNAUTHORIZED", "message": "You are not authorized.", "errors": ["You are not authorized."]}` |
+
+---
+
+### 11. Login Activity: Get History
+Retrieve the history of device logins for the authenticated user. Option to filter for unread notifications only. Requires Bearer Authentication.
+Request
+
+| Method | Endpoint |
+| :--- | :--- |
+| GET | /api/v1/auth/login-activity |
+
+| Parameter | Type | Value Type | Description |
+| :--- | :--- | :--- | :--- |
+| unreadOnly | Query | Boolean | (Optional) Set to `true` to only fetch unread activity logs. |
+
+Response
+
+| Status | Description | JSON Response Example |
+| :--- | :--- | :--- |
+| 200 | OK | `{"success": true, "code": "LOGIN_ACTIVITY_RETRIEVED", "message": "Login activities retrieved successfully.", "data": [{"id": "e42ca671-87ab-...", "deviceInfo": "Mozilla/5.0...", "ipAddress": "127.0.0.1", "status": "trusted", "notified": false, "sessionId": "d08fa671-87ab-...", "createdAt": "2026-05-30T15:23:00.000Z"}]}` |
+| 401 | Unauthorized | `{"success": false, "code": "AUTH_UNAUTHORIZED", "message": "You are not authorized.", "errors": ["You are not authorized."]}` |
+
+---
+
+### 12. Login Activity: Mark Suspicious
+Mark a specific login activity as suspicious and automatically revoke its associated session. Requires Bearer Authentication.
+Request
+
+| Method | Endpoint |
+| :--- | :--- |
+| PATCH | /api/v1/auth/login-activity/:id/suspicious |
+
+Response
+
+| Status | Description | JSON Response Example |
+| :--- | :--- | :--- |
+| 200 | OK | `{"success": true, "code": "LOGIN_MARKED_SUSPICIOUS", "message": "Activity marked as suspicious and session revoked.", "data": null}` |
+| 401 | Unauthorized | `{"success": false, "code": "AUTH_UNAUTHORIZED", "message": "You are not authorized.", "errors": ["You are not authorized."]}` |
